@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CIVITAS GridStyle 45/90 — prototype</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand__title">CIVITAS GridStyle 45/90</div>
+        <div class="brand__subtitle">клеточный прототип • 8 направлений • Minecraft-ready</div>
+      </div>
+
+      <div class="controls" id="controls">
+        <label class="control">
+          <span>Seed</span>
+          <input id="seed" type="text" value="42" />
+        </label>
+
+        <label class="control">
+          <span>W×H (cells)</span>
+          <input id="size" type="text" value="128x128" />
+        </label>
+
+        <div class="buttons">
+          <button id="btnGenerate" class="btn btn--primary">Generate</button>
+          <button id="btnStep" class="btn">Step</button>
+          <button id="btnRun" class="btn">Run</button>
+          <button id="btnStop" class="btn">Stop</button>
+          <button id="btnExport" class="btn">Export JSON</button>
+        </div>
+
+        <label class="control control--checkbox">
+          <input id="chkDebug" type="checkbox" />
+          <span>Debug</span>
+        </label>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <h2>Метрики</h2>
+        <div class="metrics" id="metrics"></div>
+        <h2>Пресеты ширины (Minecraft)</h2>
+        <ul class="presets">
+          <li><b>LOCAL</b>: 1 cell → 5 blocks</li>
+          <li><b>SECONDARY</b>: 2 cells → 10 blocks</li>
+          <li><b>MAIN</b>: 3 cells → 15 blocks</li>
+        </ul>
+        <div class="hint">
+          Запуск: откройте через локальный сервер (например, <code>python -m http.server</code>) и перейдите на <code>/civitas-gridstyle/</code>.
+        </div>
+      </section>
+
+      <section class="stage">
+        <canvas id="view" width="1024" height="1024"></canvas>
+      </section>
+    </main>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
