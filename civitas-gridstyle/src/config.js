@@ -89,6 +89,7 @@ export const defaultConfig = {
   },
 
   growth: {
+    roadGenVersion: 2,
     plazaRadiusMin: 3,
     plazaRadiusMax: 5,
 
@@ -102,6 +103,7 @@ export const defaultConfig = {
     spiralKNN: 5,
     spiralDegMax: 4,
     spiralMainLongEdges: 8,
+    spiralWaterAvoidDist: 2,
 
     spawnSecondaryEveryMin: 8,
     spawnSecondaryEveryMax: 16,

@@ -105,6 +105,52 @@ function findNearestFree(grid, x, y, r = 6) {
   return { x, y };
 }
 
+function buildDistanceToObstacles(grid) {
+  // Multi-source BFS distance (4-neighborhood) to nearest obstacle.
+  const w = grid.w;
+  const h = grid.h;
+  const n = w * h;
+  const dist = new Int16Array(n);
+  dist.fill(-1);
+
+  const qx = new Int16Array(n);
+  const qy = new Int16Array(n);
+  let qs = 0;
+  let qe = 0;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!grid.isObstacle(x, y)) continue;
+      const i = y * w + x;
+      dist[i] = 0;
+      qx[qe] = x;
+      qy[qe] = y;
+      qe++;
+    }
+  }
+
+  const dirs4 = [DIRS_8[0], DIRS_8[2], DIRS_8[4], DIRS_8[6]];
+  while (qs < qe) {
+    const x = qx[qs];
+    const y = qy[qs];
+    qs++;
+    const i = y * w + x;
+    const d = dist[i];
+    for (const dd of dirs4) {
+      const nx = x + dd.dx;
+      const ny = y + dd.dy;
+      if (!grid.inBounds(nx, ny)) continue;
+      const ni = ny * w + nx;
+      if (dist[ni] !== -1) continue;
+      dist[ni] = d + 1;
+      qx[qe] = nx;
+      qy[qe] = ny;
+      qe++;
+    }
+  }
+  return dist;
+}
+
 function aStar8({ grid, start, goal, typeCfg, cfg }) {
   const open = new MinHeap();
   const gScore = new Map();
@@ -992,10 +1038,298 @@ function finalizeBranch({ graph, grid, branch }) {
   graph.addRoad({ type: branch.type, widthCells: branch.widthCells, path: branch.path });
 }
 
-export function createCitySimulation({ rng, cfg, w, h }) {
+// RoadGen v2: Spiral point cloud -> 45/90/diag(45) shortest-bend roads -> no intersections.
+function generateSpiralPoints({ rng, grid, count, c, step, noiseR, noiseTheta, center, minDist, distToObs, waterAvoidDist }) {
+  const out = [];
+  const seen = new Set();
+  const phi = 2.399963229728653; // golden angle in radians
+  const w = grid.w;
+  const h = grid.h;
+  const cx = center.x;
+  const cy = center.y;
+  const minDist2 = Math.max(0, minDist ?? 0) ** 2;
+  const avoid = Math.max(0, waterAvoidDist ?? 0);
+
+  for (let n = 0; n < count; n++) {
+    const r = c * Math.sqrt(n) + (rng.f32() - 0.5) * (noiseR ?? 0);
+    const theta = n * phi + (rng.f32() - 0.5) * (noiseTheta ?? 0);
+    let x = cx + r * Math.cos(theta);
+    let y = cy + r * Math.sin(theta);
+    x = Math.round(x / step) * step;
+    y = Math.round(y / step) * step;
+    if (x < 0 || y < 0 || x >= w || y >= h) continue;
+    if (grid.isObstacle(x, y)) continue;
+    if (distToObs && avoid > 0) {
+      const d = distToObs[y * w + x];
+      if (d !== -1 && d <= avoid) continue;
+    }
+    const k = key(x, y);
+    if (seen.has(k)) continue;
+
+    if (minDist2 > 0) {
+      let ok = true;
+      for (const p of out) {
+        const dx = p.x - x;
+        const dy = p.y - y;
+        if (dx * dx + dy * dy < minDist2) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+    }
+
+    seen.add(k);
+    out.push({ x, y });
+  }
+  return out;
+}
+
+function buildKnnCandidates(points, k) {
+  const edges = [];
+  const seen = new Set();
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const dists = [];
+    for (let j = 0; j < points.length; j++) {
+      if (i === j) continue;
+      const b = points[j];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      dists.push({ j, d2: dx * dx + dy * dy });
+    }
+    dists.sort((p, q) => p.d2 - q.d2);
+    for (let n = 0; n < Math.min(k, dists.length); n++) {
+      const j = dists[n].j;
+      const aId = i < j ? i : j;
+      const bId = i < j ? j : i;
+      const ek = `${aId}-${bId}`;
+      if (seen.has(ek)) continue;
+      seen.add(ek);
+      edges.push({ a: aId, b: bId, d2: dists[n].d2 });
+    }
+  }
+  edges.sort((p, q) => p.d2 - q.d2);
+  return edges;
+}
+
+function traceLine8(a, b, step = 1) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  if (dx === 0 && dy === 0) return [[a.x, a.y]];
+  const adx = Math.abs(dx);
+  const ady = Math.abs(dy);
+  if (dx !== 0 && dy !== 0 && adx !== ady) return null;
+  const sx = Math.sign(dx);
+  const sy = Math.sign(dy);
+  const steps = Math.max(adx, ady) / step;
+  const path = [];
+  for (let i = 0; i <= steps; i++) {
+    path.push([a.x + sx * i * step, a.y + sy * i * step]);
+  }
+  return path;
+}
+
+function buildPathVia(a, p, b, step = 1) {
+  const s1 = traceLine8(a, p, step);
+  if (!s1) return null;
+  const s2 = traceLine8(p, b, step);
+  if (!s2) return null;
+  return s1.concat(s2.slice(1));
+}
+
+function candidatePaths45_90(a, b, step = 1) {
+  const out = [];
+  const dx = (b.x - a.x) / step;
+  const dy = (b.y - a.y) / step;
+  const adx = Math.abs(dx);
+  const ady = Math.abs(dy);
+  if (adx === 0 && ady === 0) return out;
+  const sx = Math.sign(dx);
+  const sy = Math.sign(dy);
+  const m = Math.min(adx, ady);
+
+  const P = { x: a.x + sx * m * step, y: a.y + sy * m * step }; // diag then ortho
+  const P2 = { x: b.x - sx * m * step, y: b.y - sy * m * step }; // ortho then diag
+  const P1 = { x: b.x, y: a.y }; // L
+  const P3 = { x: a.x, y: b.y }; // L
+
+  const base = [P, P2, P1, P3];
+  for (const p of base) {
+    const path = buildPathVia(a, p, b, step);
+    if (path && path.length >= 2) out.push(path);
+  }
+
+  const shifts = [
+    [step, 0],
+    [-step, 0],
+    [0, step],
+    [0, -step],
+    [step, step],
+    [step, -step],
+    [-step, step],
+    [-step, -step],
+  ];
+  for (const baseP of [P, P2]) {
+    for (const s of shifts) {
+      const p = { x: baseP.x + s[0], y: baseP.y + s[1] };
+      const path = buildPathVia(a, p, b, step);
+      if (path && path.length >= 2) out.push(path);
+    }
+  }
+
+  return out;
+}
+
+function pathIntersectsOcc({ path, grid, occ, nodeSet, distToObs, waterAvoidDist }) {
+  const avoid = Math.max(0, waterAvoidDist ?? 0);
+  for (let i = 0; i < path.length; i++) {
+    const [x, y] = path[i];
+    if (!grid.inBounds(x, y)) return true;
+    if (grid.isObstacle(x, y)) return true;
+    const idx = y * grid.w + x;
+    if (distToObs && avoid > 0) {
+      const d = distToObs[idx];
+      if (d !== -1 && d <= avoid) return true;
+    }
+    if (!occ[idx]) continue;
+    const isEndpoint = i === 0 || i === path.length - 1;
+    if (isEndpoint && nodeSet.has(key(x, y))) continue; // connect at a node
+    return true; // overlap / intersection
+  }
+  return false;
+}
+
+function markOcc(path, grid, occ) {
+  for (const [x, y] of path) occ[y * grid.w + x] = 1;
+}
+
+function buildMstEdgeSet(edges, nodeCount) {
+  const parent = new Int32Array(nodeCount);
+  for (let i = 0; i < nodeCount; i++) parent[i] = i;
+  const find = (x) => {
+    let p = x;
+    while (parent[p] !== p) p = parent[p];
+    while (parent[x] !== x) {
+      const n = parent[x];
+      parent[x] = p;
+      x = n;
+    }
+    return p;
+  };
+  const unite = (a, b) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra === rb) return false;
+    parent[ra] = rb;
+    return true;
+  };
+
+  const set = new Set();
+  const sorted = edges.map((e, i) => ({ i, d2: e.d2 })).sort((a, b) => a.d2 - b.d2);
+  for (const s of sorted) {
+    const e = edges[s.i];
+    if (unite(e.a, e.b)) set.add(s.i);
+  }
+  return set;
+}
+
+function createCitySimulationV2({ rng, cfg, w, h }) {
   const grid = new Grid(w, h);
   const graph = new Graph(grid);
   generateObstacles(grid, rng, cfg.fields.obstacles);
+
+  const boundaryMask = new Uint8Array(w * h);
+  const distToObs = buildDistanceToObstacles(grid);
+
+  const hub = findNearestFree(grid, (w / 2) | 0, (h / 2) | 0, 10);
+  graph.ensureNode(hub.x, hub.y);
+  const meta = { w, h, cellScale: cfg.meta.cellScaleBlocks, seed: rng.seed };
+
+  const step = Math.max(1, cfg.growth.spiralStep ?? 1);
+  const points = generateSpiralPoints({
+    rng,
+    grid,
+    count: Math.max(20, cfg.growth.spiralPointCount ?? 140),
+    c: Math.max(2, cfg.growth.spiralC ?? 3.2),
+    step,
+    noiseR: Math.max(0, cfg.growth.spiralNoiseR ?? 0.9),
+    noiseTheta: Math.max(0, cfg.growth.spiralNoiseTheta ?? 0.5),
+    center: hub,
+    minDist: Math.max(0, cfg.growth.spiralMinDist ?? 2),
+    distToObs,
+    waterAvoidDist: Math.max(0, cfg.growth.spiralWaterAvoidDist ?? 0),
+  });
+  if (!points.some((p) => p.x === hub.x && p.y === hub.y)) points.push({ x: hub.x, y: hub.y });
+
+  const nodeSet = new Set(points.map((p) => key(p.x, p.y)));
+  const cand = buildKnnCandidates(points, Math.max(2, cfg.growth.spiralKNN ?? 5));
+  const deg = new Int16Array(points.length);
+  const degMax = Math.max(2, cfg.growth.spiralDegMax ?? 4);
+  const occ = new Uint8Array(w * h);
+
+  // Route MST edges first (keeps the graph connected), then add more edges.
+  const mstCand = buildMstEdgeSet(cand, points.length);
+  const ordered = [];
+  for (let i = 0; i < cand.length; i++) if (mstCand.has(i)) ordered.push(cand[i]);
+  for (let i = 0; i < cand.length; i++) if (!mstCand.has(i)) ordered.push(cand[i]);
+
+  const routed = [];
+  for (const e of ordered) {
+    if (deg[e.a] >= degMax || deg[e.b] >= degMax) continue;
+    const a = points[e.a];
+    const b = points[e.b];
+    const paths = candidatePaths45_90(a, b, step);
+    let accepted = null;
+    for (const path of paths) {
+      if (pathIntersectsOcc({ path, grid, occ, nodeSet, distToObs, waterAvoidDist: cfg.growth.spiralWaterAvoidDist })) continue;
+      accepted = path;
+      break;
+    }
+    if (!accepted) continue;
+    routed.push({ a: e.a, b: e.b, d2: e.d2, path: accepted });
+    markOcc(accepted, grid, occ);
+    deg[e.a]++;
+    deg[e.b]++;
+  }
+
+  // Classify MAIN as routed MST + a few longest extras (shortcuts).
+  const mstRouted = buildMstEdgeSet(routed, points.length);
+  const mainSet = new Set(mstRouted);
+  const extraLong = Math.max(0, cfg.growth.spiralMainLongEdges ?? 8);
+  const sortedLong = routed.map((e, i) => ({ i, d2: e.d2 })).sort((a, b) => b.d2 - a.d2);
+  for (let i = 0; i < sortedLong.length && mainSet.size < mstRouted.size + extraLong; i++) mainSet.add(sortedLong[i].i);
+
+  for (let i = 0; i < routed.length; i++) {
+    const e = routed[i];
+    const typeName = mainSet.has(i) ? "MAIN" : "SECONDARY";
+    markPathAsTypedRoad({ grid, cfg, typeName, path: e.path, boundaryMask });
+    graph.addRoad({ type: typeName, widthCells: cfg.roadTypes[typeName].widthCells, path: e.path });
+  }
+
+  // Blocks & LOCAL (still handled by legacy "blocks/connectors" to keep building-space usable).
+  const blocks = floodFillBlocksByMask({ grid, boundaryMask });
+  const sim = {
+    grid,
+    graph,
+    blocks,
+    meta,
+    stats: {},
+    attraction: null,
+    stage: "DONE",
+    done: true,
+    _boundaryMask: boundaryMask,
+    _distToObs: distToObs,
+    step() {},
+  };
+  return sim;
+}
+
+function createCitySimulationLegacy({ rng, cfg, w, h }) {
+  const grid = new Grid(w, h);
+  const graph = new Graph(grid);
+  generateObstacles(grid, rng, cfg.fields.obstacles);
+  const distToObs = buildDistanceToObstacles(grid);
 
   const boundaryMask = new Uint8Array(w * h);
 
@@ -1105,6 +1439,7 @@ export function createCitySimulation({ rng, cfg, w, h }) {
     stage: "SECONDARY",
     done: false,
     _boundaryMask: boundaryMask,
+    _distToObs: distToObs,
     _secondaryBranches: secondaryBranches,
     _localBranches: localBranches,
     _rrSecondary: 0,
@@ -1230,6 +1565,12 @@ export function createCitySimulation({ rng, cfg, w, h }) {
   };
 
   return sim;
+}
+
+export function createCitySimulation({ rng, cfg, w, h }) {
+  const v = cfg?.growth?.roadGenVersion ?? 1;
+  if (v === 2) return createCitySimulationV2({ rng, cfg, w, h });
+  return createCitySimulationLegacy({ rng, cfg, w, h });
 }
 
 export function generateCity({ rng, cfg, w, h }) {

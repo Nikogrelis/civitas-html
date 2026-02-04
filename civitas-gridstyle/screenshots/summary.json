@@ -1,122 +1,122 @@
 [
   {
     "seed": "1",
-    "nearWater": 400,
-    "roadCells": 1258,
-    "bad": true
+    "nearWater": 14,
+    "roadCells": 776,
+    "bad": false
   },
   {
     "seed": "2",
-    "nearWater": 377,
-    "roadCells": 1170,
-    "bad": true
+    "nearWater": 17,
+    "roadCells": 778,
+    "bad": false
   },
   {
     "seed": "3",
-    "nearWater": 328,
-    "roadCells": 1437,
-    "bad": true
+    "nearWater": 9,
+    "roadCells": 1001,
+    "bad": false
   },
   {
     "seed": "4",
-    "nearWater": 320,
-    "roadCells": 1468,
-    "bad": true
+    "nearWater": 18,
+    "roadCells": 962,
+    "bad": false
   },
   {
     "seed": "5",
-    "nearWater": 306,
-    "roadCells": 1352,
-    "bad": true
+    "nearWater": 16,
+    "roadCells": 885,
+    "bad": false
   },
   {
     "seed": "6",
-    "nearWater": 320,
-    "roadCells": 1354,
-    "bad": true
+    "nearWater": 15,
+    "roadCells": 907,
+    "bad": false
   },
   {
     "seed": "7",
-    "nearWater": 360,
-    "roadCells": 1675,
-    "bad": true
+    "nearWater": 25,
+    "roadCells": 1089,
+    "bad": false
   },
   {
     "seed": "8",
-    "nearWater": 358,
-    "roadCells": 1580,
-    "bad": true
+    "nearWater": 11,
+    "roadCells": 1046,
+    "bad": false
   },
   {
     "seed": "9",
-    "nearWater": 359,
-    "roadCells": 1618,
-    "bad": true
+    "nearWater": 8,
+    "roadCells": 1063,
+    "bad": false
   },
   {
     "seed": "10",
-    "nearWater": 300,
-    "roadCells": 1634,
-    "bad": true
+    "nearWater": 5,
+    "roadCells": 1042,
+    "bad": false
   },
   {
     "seed": "11",
-    "nearWater": 279,
-    "roadCells": 1618,
-    "bad": true
+    "nearWater": 3,
+    "roadCells": 1023,
+    "bad": false
   },
   {
     "seed": "12",
-    "nearWater": 357,
-    "roadCells": 1679,
-    "bad": true
+    "nearWater": 7,
+    "roadCells": 981,
+    "bad": false
   },
   {
     "seed": "13",
-    "nearWater": 328,
-    "roadCells": 1320,
-    "bad": true
+    "nearWater": 20,
+    "roadCells": 843,
+    "bad": false
   },
   {
     "seed": "14",
-    "nearWater": 344,
-    "roadCells": 1488,
-    "bad": true
+    "nearWater": 12,
+    "roadCells": 910,
+    "bad": false
   },
   {
     "seed": "15",
-    "nearWater": 297,
-    "roadCells": 1586,
-    "bad": true
+    "nearWater": 11,
+    "roadCells": 1036,
+    "bad": false
   },
   {
     "seed": "16",
-    "nearWater": 333,
-    "roadCells": 1424,
-    "bad": true
+    "nearWater": 2,
+    "roadCells": 861,
+    "bad": false
   },
   {
     "seed": "17",
-    "nearWater": 337,
-    "roadCells": 1235,
-    "bad": true
+    "nearWater": 29,
+    "roadCells": 848,
+    "bad": false
   },
   {
     "seed": "18",
-    "nearWater": 334,
-    "roadCells": 1536,
-    "bad": true
+    "nearWater": 4,
+    "roadCells": 985,
+    "bad": false
   },
   {
     "seed": "19",
-    "nearWater": 379,
-    "roadCells": 1427,
-    "bad": true
+    "nearWater": 7,
+    "roadCells": 831,
+    "bad": false
   },
   {
     "seed": "20",
-    "nearWater": 323,
-    "roadCells": 1591,
-    "bad": true
+    "nearWater": 7,
+    "roadCells": 1028,
+    "bad": false
   }
 ]
