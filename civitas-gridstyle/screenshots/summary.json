@@ -1,0 +1,122 @@
+[
+  {
+    "seed": "1",
+    "nearWater": 400,
+    "roadCells": 1258,
+    "bad": true
+  },
+  {
+    "seed": "2",
+    "nearWater": 377,
+    "roadCells": 1170,
+    "bad": true
+  },
+  {
+    "seed": "3",
+    "nearWater": 328,
+    "roadCells": 1437,
+    "bad": true
+  },
+  {
+    "seed": "4",
+    "nearWater": 320,
+    "roadCells": 1468,
+    "bad": true
+  },
+  {
+    "seed": "5",
+    "nearWater": 306,
+    "roadCells": 1352,
+    "bad": true
+  },
+  {
+    "seed": "6",
+    "nearWater": 320,
+    "roadCells": 1354,
+    "bad": true
+  },
+  {
+    "seed": "7",
+    "nearWater": 360,
+    "roadCells": 1675,
+    "bad": true
+  },
+  {
+    "seed": "8",
+    "nearWater": 358,
+    "roadCells": 1580,
+    "bad": true
+  },
+  {
+    "seed": "9",
+    "nearWater": 359,
+    "roadCells": 1618,
+    "bad": true
+  },
+  {
+    "seed": "10",
+    "nearWater": 300,
+    "roadCells": 1634,
+    "bad": true
+  },
+  {
+    "seed": "11",
+    "nearWater": 279,
+    "roadCells": 1618,
+    "bad": true
+  },
+  {
+    "seed": "12",
+    "nearWater": 357,
+    "roadCells": 1679,
+    "bad": true
+  },
+  {
+    "seed": "13",
+    "nearWater": 328,
+    "roadCells": 1320,
+    "bad": true
+  },
+  {
+    "seed": "14",
+    "nearWater": 344,
+    "roadCells": 1488,
+    "bad": true
+  },
+  {
+    "seed": "15",
+    "nearWater": 297,
+    "roadCells": 1586,
+    "bad": true
+  },
+  {
+    "seed": "16",
+    "nearWater": 333,
+    "roadCells": 1424,
+    "bad": true
+  },
+  {
+    "seed": "17",
+    "nearWater": 337,
+    "roadCells": 1235,
+    "bad": true
+  },
+  {
+    "seed": "18",
+    "nearWater": 334,
+    "roadCells": 1536,
+    "bad": true
+  },
+  {
+    "seed": "19",
+    "nearWater": 379,
+    "roadCells": 1427,
+    "bad": true
+  },
+  {
+    "seed": "20",
+    "nearWater": 323,
+    "roadCells": 1591,
+    "bad": true
+  }
+]

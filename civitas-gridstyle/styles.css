@@ -78,7 +78,22 @@ code { font-family: var(--mono); }
   outline: none;
 }
 
+.control input[type="number"] {
+  width: 140px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  outline: none;
+}
+
 .control input[type="text"]:focus {
+  border-color: rgba(125, 211, 252, 0.7);
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.16);
+}
+
+.control input[type="number"]:focus {
   border-color: rgba(125, 211, 252, 0.7);
   box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.16);
 }
@@ -164,6 +179,13 @@ code { font-family: var(--mono); }
   font-size: 12px;
   color: var(--muted);
   line-height: 1.4;
+}
+
+.params {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 8px;
 }
 
 .stage {

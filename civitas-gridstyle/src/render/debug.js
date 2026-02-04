@@ -2,6 +2,7 @@ export class DebugState {
   constructor() {
     this.enabled = false;
     this.points = [];
+    this.showSecondaryMap = false;
   }
 
   clear() {

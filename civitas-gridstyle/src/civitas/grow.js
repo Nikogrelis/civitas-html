@@ -1,4 +1,4 @@
-import { Grid } from "../grid/grid.js";
+﻿import { Grid } from "../grid/grid.js";
 import { DIRS_8, dirIndexDelta } from "../grid/neighbors8.js";
 import { Graph } from "../graph/graph.js";
 import { generateObstacles } from "../fields/obstacles.js";

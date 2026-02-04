@@ -1,8 +1,9 @@
 export const ROAD_TYPES = {
-  MAIN: { name: "MAIN", color: "#60a5fa" },
-  SECONDARY: { name: "SECONDARY", color: "#a78bfa" },
-  LOCAL: { name: "LOCAL", color: "#34d399" },
-  CONNECTOR: { name: "CONNECTOR", color: "#fbbf24" },
+  // Minecraft-inspired palette
+  MAIN: { name: "MAIN", color: "#c9c9c9" }, // stone bricks
+  SECONDARY: { name: "SECONDARY", color: "#b3b3b3" }, // light stone
+  LOCAL: { name: "LOCAL", color: "#9a9a9a" }, // cobble
+  CONNECTOR: { name: "CONNECTOR", color: "#f3d07a" }, // path marker
 };
 
 export const ROAD_TYPE_ORDER = ["MAIN", "SECONDARY", "LOCAL", "CONNECTOR"];

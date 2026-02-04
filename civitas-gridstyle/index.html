@@ -36,6 +36,10 @@
           <input id="chkDebug" type="checkbox" />
           <span>Debug</span>
         </label>
+        <label class="control control--checkbox">
+          <input id="chkSecondaryMap" type="checkbox" />
+          <span>Secondary map</span>
+        </label>
       </div>
     </header>
 
@@ -51,6 +55,50 @@
         </ul>
         <div class="hint">
           Запуск: откройте через локальный сервер (например, <code>python -m http.server</code>) и перейдите на <code>/civitas-gridstyle/</code>.
+        </div>
+
+        <h2>Параметры (Debug)</h2>
+        <div class="params">
+          <label class="control">
+            <span>Max MAIN roads</span>
+            <input id="dbgMaxMainRoads" type="number" min="4" max="8" step="1" value="6" />
+          </label>
+          <label class="control">
+            <span>Min dist to edge (cells)</span>
+            <input id="dbgMinEdge" type="number" min="0" max="12" step="1" value="3" />
+          </label>
+          <label class="control">
+            <span>Min dist to water (cells)</span>
+            <input id="dbgMinWater" type="number" min="0" max="12" step="1" value="2" />
+          </label>
+          <label class="control">
+            <span>Min dist to MAIN (cells)</span>
+            <input id="dbgMinMain" type="number" min="0" max="12" step="1" value="2" />
+          </label>
+          <label class="control">
+            <span>Secondary heat min</span>
+            <input id="dbgSecondaryHeatMin" type="number" min="0" max="1" step="0.05" value="0.2" />
+          </label>
+          <label class="control">
+            <span>Secondary noise scale</span>
+            <input id="dbgSecondaryNoise" type="number" min="6" max="32" step="1" value="14" />
+          </label>
+          <label class="control">
+            <span>Local heat min</span>
+            <input id="dbgLocalHeatMin" type="number" min="0" max="1" step="0.05" value="0.25" />
+          </label>
+          <label class="control">
+            <span>Local noise scale</span>
+            <input id="dbgLocalNoise" type="number" min="4" max="24" step="1" value="10" />
+          </label>
+          <label class="control">
+            <span>City radius X</span>
+            <input id="dbgCityRadiusX" type="number" min="0.5" max="1" step="0.02" value="0.92" />
+          </label>
+          <label class="control">
+            <span>City radius Y</span>
+            <input id="dbgCityRadiusY" type="number" min="0.5" max="1" step="0.02" value="0.92" />
+          </label>
         </div>
       </section>
 

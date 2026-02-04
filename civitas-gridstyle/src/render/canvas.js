@@ -21,17 +21,17 @@ export class CanvasRenderer {
     return { px: (x + 0.5) * cellPx, py: (y + 0.5) * cellPx };
   }
 
-  draw({ grid, graph, blocks, cfg, stage = "DONE", done = true, debug = null }) {
+  draw({ grid, graph, blocks, cfg, stage = "DONE", done = true, debug = null, secondaryMap = null }) {
     const ctx = this.ctx;
     const cellPx = cfg.render.cellPx | 0;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // ФАЗА 0: Background
-    ctx.fillStyle = "#0b1220";
+    // PHASE 0: Background (minecraft grass)
+    ctx.fillStyle = "#5a8f3b";
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // ФАЗА 1: Obstacles / Water (environment first)
-    ctx.fillStyle = "rgba(30, 64, 175, 0.58)";
+    // PHASE 1: Obstacles / Water
+    ctx.fillStyle = "rgba(52, 101, 164, 0.85)";
     for (let y = 0; y < grid.h; y++) {
       for (let x = 0; x < grid.w; x++) {
         if (!grid.isObstacle(x, y)) continue;
@@ -39,16 +39,13 @@ export class CanvasRenderer {
       }
     }
 
-    // ФАЗА 4: Blocks (очень слабая подложка, под дорогами)
+    // PHASE 4: Blocks (subtle dirt tint under roads)
     if (blocks?.length) {
       ctx.save();
-      ctx.globalAlpha = 0.055;
+      ctx.globalAlpha = 0.10;
       for (const b of blocks) {
-        // Мягкая вариация оттенка по id
-        const hue = (b.id * 47) % 360;
-        const sat = 35;
-        const light = b.hasAccess ? 46 : 52;
-        ctx.fillStyle = `hsl(${hue} ${sat}% ${light}%)`;
+        const base = b.hasAccess ? "#6b4f2a" : "#7a5a33";
+        ctx.fillStyle = base;
         for (const [x, y] of b.cells) {
           ctx.fillRect(x * cellPx, y * cellPx, cellPx, cellPx);
         }
@@ -56,8 +53,24 @@ export class CanvasRenderer {
       ctx.restore();
     }
 
-    const stageAllowsSecondary = stage !== "SECONDARY";
-    const stageAllowsLocal = stage === "CONNECTORS" || stage === "DONE" || done;
+    // Debug: Secondary suitability map (green = best, red = worst)
+    if (debug?.showSecondaryMap && secondaryMap) {
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      for (let y = 0; y < grid.h; y++) {
+        for (let x = 0; x < grid.w; x++) {
+          const v = secondaryMap[y * grid.w + x] ?? 0;
+          const r = Math.round(220 - 140 * v);
+          const g = Math.round(60 + 150 * v);
+          ctx.fillStyle = `rgb(${r},${g},70)`;
+          ctx.fillRect(x * cellPx, y * cellPx, cellPx, cellPx);
+        }
+      }
+      ctx.restore();
+    }
+
+    const stageAllowsSecondary = true;
+    const stageAllowsLocal = stage === "CONNECTORS" || stage === "DONE" || stage === "LOCAL" || done;
 
     const drawRoadsBody = (filterFn, alpha = 1.0) => {
       ctx.save();
@@ -115,7 +128,7 @@ export class CanvasRenderer {
       const { px, py } = this.cellToPx(cx, cy, cellPx);
       ctx.save();
       ctx.globalAlpha = 0.92;
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.fillStyle = "rgba(230,230,230,0.9)";
       ctx.beginPath();
       ctx.arc(px, py, clamp(cellPx * 1.15, 4, 14), 0, Math.PI * 2);
       ctx.fill();
@@ -130,32 +143,32 @@ export class CanvasRenderer {
     drawIntersections({
       mask: ROAD_TYPE_MASK.MAIN,
       radiusPx: clamp(cellPx * 0.75, 3.2, 10),
-      fillStyle: "rgba(255,255,255,0.75)",
+      fillStyle: "rgba(235,235,235,0.8)",
       alpha: 0.92,
       minRoadCount: 2,
     });
 
-    // ФАЗА 3: SECONDARY body (только после завершения стадии SECONDARY)
+    // PHASE 3: SECONDARY body (during/after secondary growth)
     if (stageAllowsSecondary) {
       drawRoadsBody((r) => r.type === "SECONDARY", 0.95);
       // ФАЗА 3.2: SECONDARY intersections
       drawIntersections({
         mask: ROAD_TYPE_MASK.SECONDARY | ROAD_TYPE_MASK.MAIN,
         radiusPx: clamp(cellPx * 0.42, 2.0, 6),
-        fillStyle: "rgba(255,255,255,0.55)",
+        fillStyle: "rgba(225,225,225,0.6)",
         alpha: 0.85,
         minRoadCount: 2,
       });
     }
 
-    // ФАЗА 5: LOCAL roads (рисуем только после завершения стадии LOCAL, чтобы не было «лапши»)
+    // PHASE 5: LOCAL roads (during/after local growth)
     if (stageAllowsLocal) {
       drawRoadsBody((r) => r.type === "LOCAL" && r.tag !== "CONNECTOR", 0.70);
       // LOCAL intersections
       drawIntersections({
         mask: ROAD_TYPE_MASK.LOCAL,
         radiusPx: clamp(cellPx * 0.28, 1.4, 4),
-        fillStyle: "rgba(255,255,255,0.35)",
+        fillStyle: "rgba(210,210,210,0.45)",
         alpha: 0.65,
         minRoadCount: 2,
       });
