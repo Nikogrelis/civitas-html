@@ -153,6 +153,7 @@ class App {
       done: this.sim.done,
       debug: this.debug,
       secondaryMap: this.sim._secondaryHeatMap,
+      gates: this.sim._gates ?? null,
     });
   }
 }

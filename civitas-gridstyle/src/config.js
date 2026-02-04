@@ -3,7 +3,7 @@ export const defaultConfig = {
     seed: 42,
     w: 128,
     h: 128,
-    cellScaleBlocks: 5,
+    cellScaleBlocks: 1,
   },
 
   render: {
@@ -43,7 +43,7 @@ export const defaultConfig = {
 
   roadTypes: {
     MAIN: {
-      widthCells: 3,
+      widthCells: 15,
       stepLenCells: 1,
       maxLenCells: 900,
       branchProb: 0.0,
@@ -58,7 +58,7 @@ export const defaultConfig = {
       diagonalBias: 0.05,
     },
     SECONDARY: {
-      widthCells: 2,
+      widthCells: 10,
       stepLenCells: 1,
       maxLenCells: 70,
       branchProb: 0.0,
@@ -73,7 +73,7 @@ export const defaultConfig = {
       diagonalBias: 0.18,
     },
     LOCAL: {
-      widthCells: 1,
+      widthCells: 5,
       stepLenCells: 1,
       maxLenCells: 18,
       branchProb: 0.0,
@@ -94,16 +94,35 @@ export const defaultConfig = {
     plazaRadiusMax: 5,
 
     // RoadGen v2: spiral point cloud + 45/90 routing
-    spiralPointCount: 140,
-    spiralC: 3.2,
+    // Less dense default: fewer points + more spacing (1 cell = 1 meter)
+    spiralPointCount: 48,
+    spiralC: 8.0,
     spiralStep: 1,
     spiralNoiseR: 0.9,
     spiralNoiseTheta: 0.5,
-    spiralMinDist: 2,
-    spiralKNN: 5,
-    spiralDegMax: 4,
-    spiralMainLongEdges: 8,
-    spiralWaterAvoidDist: 2,
+    spiralMinDist: 12,
+    spiralKNN: 3,
+    spiralDegMax: 3,
+    spiralMainLongEdges: 4,
+    spiralWaterAvoidDist: 8,
+    spiralMaxEdges: 70,
+    mainGateCount: 4,
+    mainAllowDiagonals: false,
+    mainGatePad: 4,
+    mainNoiseScale: 10,
+    mainNoiseWeight: 0.08,
+    mainWaterPenaltyDist: 6,
+    mainWaterPenaltyWeight: 0.6,
+    mainGateMinSpacing: 18,
+    mainRoadAttractWeight: 0.12,
+    mainGateSearchBand: 16,
+    enableLocalV2: false,
+
+    // RoadGen v2: LOCAL fill
+    localFillMinBlockCells: 1400,
+    localGridSpacingMin: 18,
+    localGridSpacingMax: 26,
+    localDiagonalChance: 0.1,
 
     spawnSecondaryEveryMin: 8,
     spawnSecondaryEveryMax: 16,

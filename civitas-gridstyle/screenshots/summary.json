@@ -1,122 +1,50 @@
 [
   {
     "seed": "1",
-    "nearWater": 14,
-    "roadCells": 776,
+    "nearWater": 0,
+    "roadCells": 524,
     "bad": false
   },
   {
     "seed": "2",
-    "nearWater": 17,
-    "roadCells": 778,
+    "nearWater": 0,
+    "roadCells": 446,
     "bad": false
   },
   {
     "seed": "3",
-    "nearWater": 9,
-    "roadCells": 1001,
+    "nearWater": 0,
+    "roadCells": 541,
     "bad": false
   },
   {
     "seed": "4",
-    "nearWater": 18,
-    "roadCells": 962,
+    "nearWater": 0,
+    "roadCells": 460,
     "bad": false
   },
   {
     "seed": "5",
-    "nearWater": 16,
-    "roadCells": 885,
+    "nearWater": 6,
+    "roadCells": 604,
     "bad": false
   },
   {
     "seed": "6",
-    "nearWater": 15,
-    "roadCells": 907,
+    "nearWater": 8,
+    "roadCells": 683,
     "bad": false
   },
   {
     "seed": "7",
-    "nearWater": 25,
-    "roadCells": 1089,
+    "nearWater": 0,
+    "roadCells": 573,
     "bad": false
   },
   {
     "seed": "8",
-    "nearWater": 11,
-    "roadCells": 1046,
-    "bad": false
-  },
-  {
-    "seed": "9",
-    "nearWater": 8,
-    "roadCells": 1063,
-    "bad": false
-  },
-  {
-    "seed": "10",
-    "nearWater": 5,
-    "roadCells": 1042,
-    "bad": false
-  },
-  {
-    "seed": "11",
-    "nearWater": 3,
-    "roadCells": 1023,
-    "bad": false
-  },
-  {
-    "seed": "12",
-    "nearWater": 7,
-    "roadCells": 981,
-    "bad": false
-  },
-  {
-    "seed": "13",
-    "nearWater": 20,
-    "roadCells": 843,
-    "bad": false
-  },
-  {
-    "seed": "14",
-    "nearWater": 12,
-    "roadCells": 910,
-    "bad": false
-  },
-  {
-    "seed": "15",
-    "nearWater": 11,
-    "roadCells": 1036,
-    "bad": false
-  },
-  {
-    "seed": "16",
-    "nearWater": 2,
-    "roadCells": 861,
-    "bad": false
-  },
-  {
-    "seed": "17",
-    "nearWater": 29,
-    "roadCells": 848,
-    "bad": false
-  },
-  {
-    "seed": "18",
-    "nearWater": 4,
-    "roadCells": 985,
-    "bad": false
-  },
-  {
-    "seed": "19",
-    "nearWater": 7,
-    "roadCells": 831,
-    "bad": false
-  },
-  {
-    "seed": "20",
-    "nearWater": 7,
-    "roadCells": 1028,
+    "nearWater": 0,
+    "roadCells": 551,
     "bad": false
   }
 ]

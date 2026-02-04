@@ -58,6 +58,22 @@ function key(x, y) {
   return `${x},${y}`;
 }
 
+function hashString(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function hash2(x, y, seed) {
+  let n = (x | 0) * 374761393 + (y | 0) * 668265263 + (seed | 0) * 1442695041;
+  n = (n ^ (n >>> 13)) * 1274126177;
+  n ^= n >>> 16;
+  return (n >>> 0) / 4294967295;
+}
+
 function heuristic(x, y, gx, gy) {
   return Math.hypot(gx - x, gy - y);
 }
@@ -151,7 +167,7 @@ function buildDistanceToObstacles(grid) {
   return dist;
 }
 
-function aStar8({ grid, start, goal, typeCfg, cfg }) {
+function aStar8({ grid, start, goal, typeCfg, cfg, allowedDirIs = null, extraCostFn = null }) {
   const open = new MinHeap();
   const gScore = new Map();
   const came = new Map();
@@ -183,7 +199,8 @@ function aStar8({ grid, start, goal, typeCfg, cfg }) {
     expanded++;
     if (expanded > maxExpand) return null;
 
-    for (const d of DIRS_8) {
+    const dirs = allowedDirIs ? allowedDirIs.map((i) => DIRS_8[i]) : DIRS_8;
+    for (const d of dirs) {
       const nx = cur.x + d.dx;
       const ny = cur.y + d.dy;
       if (!grid.inBounds(nx, ny)) continue;
@@ -195,7 +212,8 @@ function aStar8({ grid, start, goal, typeCfg, cfg }) {
       const rep = repelCost({ grid, x: nx, y: ny, dirI: d.i, typeCfg });
       const diag = d.dx !== 0 && d.dy !== 0;
       const diagBias = diag ? (typeCfg.diagonalBias ?? 0) : 0;
-      const stepCost = d.cost * baseCellCost({ grid, x: nx, y: ny }) + tp + rep + diagBias;
+      const extra = extraCostFn ? extraCostFn(nx, ny) : 0;
+      const stepCost = d.cost * baseCellCost({ grid, x: nx, y: ny }) + tp + rep + diagBias + extra;
       const nk = key(nx, ny);
       const ng = curG + stepCost;
       const old = gScore.get(nk);
@@ -1234,6 +1252,338 @@ function buildMstEdgeSet(edges, nodeCount) {
   return set;
 }
 
+function pickShortestValidPath({ paths, grid, occ, nodeSet, distToObs, waterAvoidDist }) {
+  let best = null;
+  let bestLen = Infinity;
+  for (const path of paths) {
+    if (pathIntersectsOcc({ path, grid, occ, nodeSet, distToObs, waterAvoidDist })) continue;
+    if (path.length < bestLen) {
+      best = path;
+      bestLen = path.length;
+    }
+  }
+  return best;
+}
+
+function pickGatePoints({ points, deg, w, h, hub, count, pad, minSpacing, band }) {
+  const pick = (requireDeg, maxEdgeDist) => {
+    const out = [];
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      if (requireDeg && deg && deg[i] <= 0) continue;
+      const dEdge = Math.min(p.x, p.y, w - 1 - p.x, h - 1 - p.y);
+      if (dEdge > maxEdgeDist) continue;
+      const dHub = Math.hypot(p.x - hub.x, p.y - hub.y);
+      const score = dHub - dEdge * 0.25;
+      out.push({ x: p.x, y: p.y, score });
+    }
+    out.sort((a, b) => b.score - a.score);
+    return out;
+  };
+
+  const edgeBand = Math.max(pad, band ?? pad);
+  let candidates = pick(true, edgeBand);
+  if (!candidates.length) candidates = pick(false, edgeBand);
+  if (!candidates.length) candidates = pick(false, Math.max(edgeBand, Math.min(w, h) / 2));
+
+  const picked = [];
+  for (const c of candidates) {
+    if (picked.length >= count) break;
+    let ok = true;
+    for (const g of picked) {
+      if (Math.hypot(c.x - g.x, c.y - g.y) < minSpacing) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    picked.push({ x: c.x, y: c.y });
+  }
+  return picked;
+}
+
+function findNearestRoadCell({ grid, x, y, mask, maxR = 8 }) {
+  if (grid.inBounds(x, y) && grid.hasRoadType(x, y, mask)) return { x, y };
+  for (let r = 1; r <= maxR; r++) {
+    for (let oy = -r; oy <= r; oy++) {
+      for (let ox = -r; ox <= r; ox++) {
+        if (Math.abs(ox) !== r && Math.abs(oy) !== r) continue;
+        const nx = x + ox;
+        const ny = y + oy;
+        if (!grid.inBounds(nx, ny)) continue;
+        if (grid.hasRoadType(nx, ny, mask)) return { x: nx, y: ny };
+      }
+    }
+  }
+  return null;
+}
+
+function bfsOnRoadMask({ grid, start, mask }) {
+  const w = grid.w;
+  const h = grid.h;
+  const n = w * h;
+  const prev = new Int32Array(n);
+  prev.fill(-1);
+  const qx = new Int16Array(n);
+  const qy = new Int16Array(n);
+  let qs = 0;
+  let qe = 0;
+  const sIdx = start.y * w + start.x;
+  prev[sIdx] = sIdx;
+  qx[qe] = start.x;
+  qy[qe] = start.y;
+  qe++;
+  while (qs < qe) {
+    const x = qx[qs];
+    const y = qy[qs];
+    qs++;
+    const i = y * w + x;
+    for (const d of DIRS_8) {
+      const nx = x + d.dx;
+      const ny = y + d.dy;
+      if (!grid.inBounds(nx, ny)) continue;
+      if (!grid.hasRoadType(nx, ny, mask)) continue;
+      const ni = ny * w + nx;
+      if (prev[ni] !== -1) continue;
+      prev[ni] = i;
+      qx[qe] = nx;
+      qy[qe] = ny;
+      qe++;
+    }
+  }
+  return prev;
+}
+
+function reconstructPathFromPrev(prev, w, startIdx, goalIdx) {
+  if (prev[goalIdx] === -1) return null;
+  const path = [];
+  let cur = goalIdx;
+  while (true) {
+    const x = cur % w;
+    const y = (cur / w) | 0;
+    path.push([x, y]);
+    if (cur === startIdx) break;
+    cur = prev[cur];
+    if (cur === -1) return null;
+  }
+  path.reverse();
+  return path;
+}
+
+function pickGateRoadCells({ grid, hub, mask, count, pad, minSpacing, band, prev }) {
+  const w = grid.w;
+  const h = grid.h;
+  const edgeBand = Math.max(pad, band ?? pad);
+  const candidates = [];
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const dEdge = Math.min(x, y, w - 1 - x, h - 1 - y);
+      if (dEdge > edgeBand) continue;
+      if (!grid.hasRoadType(x, y, mask)) continue;
+      const i = y * w + x;
+      if (prev && prev[i] === -1) continue;
+      const dHub = Math.hypot(x - hub.x, y - hub.y);
+      const score = dHub - dEdge * 0.25;
+      candidates.push({ x, y, score });
+    }
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  const picked = [];
+  for (const c of candidates) {
+    if (picked.length >= count) break;
+    let ok = true;
+    for (const g of picked) {
+      if (Math.hypot(c.x - g.x, c.y - g.y) < minSpacing) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    picked.push({ x: c.x, y: c.y });
+  }
+  return picked;
+}
+
+function buildLocalGridForBlocks({ grid, blocks, cfg, rng, hub, distToObs }) {
+  const w = grid.w;
+  const h = grid.h;
+  const out = [];
+
+  const minCells = Math.max(20, cfg.growth.localFillMinBlockCells ?? 60);
+  const spacingMin = Math.max(2, cfg.growth.localGridSpacingMin ?? 3);
+  const spacingMax = Math.max(spacingMin, cfg.growth.localGridSpacingMax ?? 8);
+  const avoid = Math.max(0, cfg.growth.localWaterAvoidDist ?? 0);
+  const diagChance = Math.max(0, Math.min(1, cfg.growth.localDiagonalChance ?? 0.22));
+
+  const maxDist = Math.hypot(w, h);
+
+  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+
+  function boundsOf(cells) {
+    let minX = w,
+      minY = h,
+      maxX = 0,
+      maxY = 0;
+    for (const [x, y] of cells) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+    return { minX, minY, maxX, maxY };
+  }
+
+  function buildMask(cells) {
+    const mask = new Uint8Array(w * h);
+    for (const [x, y] of cells) {
+      const i = y * w + x;
+      if (avoid > 0 && distToObs) {
+        const d = distToObs[i];
+        if (d !== -1 && d <= avoid) continue;
+      }
+      mask[i] = 1;
+    }
+    return mask;
+  }
+
+  function extendToRoad(x, y, dx, dy, maxSteps) {
+    let cx = x;
+    let cy = y;
+    for (let i = 0; i < maxSteps; i++) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (!grid.inBounds(nx, ny)) break;
+      if (grid.isObstacle(nx, ny)) break;
+      if (grid.hasRoadType(nx, ny, ROAD_TYPE_MASK.MAIN)) break;
+      cx = nx;
+      cy = ny;
+      if (grid.isRoad(cx, cy)) return { x: cx, y: cy };
+    }
+    return { x, y };
+  }
+
+  function addRowSegments(mask, y, bounds, spacing) {
+    let segStart = -1;
+    for (let x = bounds.minX; x <= bounds.maxX; x++) {
+      const ok = mask[y * w + x] === 1;
+      if (ok) {
+        if (segStart === -1) segStart = x;
+      } else if (segStart !== -1) {
+        const len = x - segStart;
+        if (len >= Math.max(6, spacing * 2)) {
+          const a0 = extendToRoad(segStart, y, -1, 0, 3);
+          const b0 = extendToRoad(x - 1, y, 1, 0, 3);
+          const seg = [];
+          for (let xx = a0.x; xx <= b0.x; xx++) seg.push([xx, y]);
+          out.push(seg);
+        }
+        segStart = -1;
+      }
+    }
+    if (segStart !== -1) {
+      const len = bounds.maxX + 1 - segStart;
+      if (len >= Math.max(6, spacing * 2)) {
+        const a0 = extendToRoad(segStart, y, -1, 0, 3);
+        const b0 = extendToRoad(bounds.maxX, y, 1, 0, 3);
+        const seg = [];
+        for (let xx = a0.x; xx <= b0.x; xx++) seg.push([xx, y]);
+        out.push(seg);
+      }
+    }
+  }
+
+  function addColSegments(mask, x, bounds, spacing) {
+    let segStart = -1;
+    for (let y = bounds.minY; y <= bounds.maxY; y++) {
+      const ok = mask[y * w + x] === 1;
+      if (ok) {
+        if (segStart === -1) segStart = y;
+      } else if (segStart !== -1) {
+        const len = y - segStart;
+        if (len >= Math.max(6, spacing * 2)) {
+          const a0 = extendToRoad(x, segStart, 0, -1, 3);
+          const b0 = extendToRoad(x, y - 1, 0, 1, 3);
+          const seg = [];
+          for (let yy = a0.y; yy <= b0.y; yy++) seg.push([x, yy]);
+          out.push(seg);
+        }
+        segStart = -1;
+      }
+    }
+    if (segStart !== -1) {
+      const len = bounds.maxY + 1 - segStart;
+      if (len >= Math.max(6, spacing * 2)) {
+        const a0 = extendToRoad(x, segStart, 0, -1, 3);
+        const b0 = extendToRoad(x, bounds.maxY, 0, 1, 3);
+        const seg = [];
+        for (let yy = a0.y; yy <= b0.y; yy++) seg.push([x, yy]);
+        out.push(seg);
+      }
+    }
+  }
+
+  function addDiagSegments(mask, bounds, spacing, dx, dy) {
+    const starts = [];
+    // sample starting points along top and left edges of the bounds
+    for (let x = bounds.minX; x <= bounds.maxX; x += spacing) starts.push([x, bounds.minY]);
+    for (let y = bounds.minY + spacing; y <= bounds.maxY; y += spacing) starts.push([bounds.minX, y]);
+
+    for (const s of starts) {
+      let x = s[0];
+      let y = s[1];
+      let seg = [];
+      while (x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY) {
+        const ok = mask[y * w + x] === 1;
+        if (ok) {
+          seg.push([x, y]);
+        } else if (seg.length) {
+          if (seg.length >= Math.max(6, spacing * 2)) out.push(seg);
+          seg = [];
+        }
+        x += dx;
+        y += dy;
+      }
+      if (seg.length >= Math.max(6, spacing * 2)) out.push(seg);
+    }
+  }
+
+  for (const b of blocks) {
+    if (!b?.cells?.length) continue;
+    if (b.cells.length < minCells) continue;
+    const bounds = boundsOf(b.cells);
+    const cx = (bounds.minX + bounds.maxX) * 0.5;
+    const cy = (bounds.minY + bounds.maxY) * 0.5;
+    const t = clamp01(Math.hypot(cx - hub.x, cy - hub.y) / maxDist);
+    const spacing = Math.max(2, Math.round(lerp(spacingMin, spacingMax, t) + (rng.f32() - 0.5) * 1.5));
+
+    const mask = buildMask(b.cells);
+    const useDiag = rng.chance(diagChance);
+
+    if (useDiag) {
+      addDiagSegments(mask, bounds, spacing, 1, 1);
+      addDiagSegments(mask, bounds, spacing, 1, -1);
+    } else {
+      const y0 = bounds.minY + rng.int(0, Math.max(1, spacing - 1));
+      for (let y = y0; y <= bounds.maxY; y += spacing) addRowSegments(mask, y, bounds, spacing);
+      const x0 = bounds.minX + rng.int(0, Math.max(1, spacing - 1));
+      for (let x = x0; x <= bounds.maxX; x += spacing) addColSegments(mask, x, bounds, spacing);
+    }
+  }
+
+  // De-duplicate and cull micro segments.
+  const cleaned = [];
+  const seen = new Set();
+  for (const p of out) {
+    if (p.length < 2) continue;
+    const k = `${p[0][0]},${p[0][1]}-${p[p.length - 1][0]},${p[p.length - 1][1]}-${p.length}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    cleaned.push(p);
+  }
+  return cleaned;
+}
+
 function createCitySimulationV2({ rng, cfg, w, h }) {
   const grid = new Grid(w, h);
   const graph = new Graph(grid);
@@ -1247,6 +1597,9 @@ function createCitySimulationV2({ rng, cfg, w, h }) {
   const meta = { w, h, cellScale: cfg.meta.cellScaleBlocks, seed: rng.seed };
 
   const step = Math.max(1, cfg.growth.spiralStep ?? 1);
+  const waterAvoidDist = Math.max(0, cfg.growth.spiralWaterAvoidDist ?? 0);
+
+  // SECONDARY: spiral points + kNN, routed with no intersections.
   const points = generateSpiralPoints({
     rng,
     grid,
@@ -1258,7 +1611,7 @@ function createCitySimulationV2({ rng, cfg, w, h }) {
     center: hub,
     minDist: Math.max(0, cfg.growth.spiralMinDist ?? 2),
     distToObs,
-    waterAvoidDist: Math.max(0, cfg.growth.spiralWaterAvoidDist ?? 0),
+    waterAvoidDist,
   });
   if (!points.some((p) => p.x === hub.x && p.y === hub.y)) points.push({ x: hub.x, y: hub.y });
 
@@ -1267,6 +1620,7 @@ function createCitySimulationV2({ rng, cfg, w, h }) {
   const deg = new Int16Array(points.length);
   const degMax = Math.max(2, cfg.growth.spiralDegMax ?? 4);
   const occ = new Uint8Array(w * h);
+  const maxEdges = Math.max(0, cfg.growth.spiralMaxEdges ?? Math.round(points.length * 1.6));
 
   // Route MST edges first (keeps the graph connected), then add more edges.
   const mstCand = buildMstEdgeSet(cand, points.length);
@@ -1276,16 +1630,19 @@ function createCitySimulationV2({ rng, cfg, w, h }) {
 
   const routed = [];
   for (const e of ordered) {
+    if (maxEdges > 0 && routed.length >= maxEdges) break;
     if (deg[e.a] >= degMax || deg[e.b] >= degMax) continue;
     const a = points[e.a];
     const b = points[e.b];
     const paths = candidatePaths45_90(a, b, step);
-    let accepted = null;
-    for (const path of paths) {
-      if (pathIntersectsOcc({ path, grid, occ, nodeSet, distToObs, waterAvoidDist: cfg.growth.spiralWaterAvoidDist })) continue;
-      accepted = path;
-      break;
-    }
+    const accepted = pickShortestValidPath({
+      paths,
+      grid,
+      occ,
+      nodeSet,
+      distToObs,
+      waterAvoidDist,
+    });
     if (!accepted) continue;
     routed.push({ a: e.a, b: e.b, d2: e.d2, path: accepted });
     markOcc(accepted, grid, occ);
@@ -1293,22 +1650,72 @@ function createCitySimulationV2({ rng, cfg, w, h }) {
     deg[e.b]++;
   }
 
-  // Classify MAIN as routed MST + a few longest extras (shortcuts).
-  const mstRouted = buildMstEdgeSet(routed, points.length);
-  const mainSet = new Set(mstRouted);
-  const extraLong = Math.max(0, cfg.growth.spiralMainLongEdges ?? 8);
-  const sortedLong = routed.map((e, i) => ({ i, d2: e.d2 })).sort((a, b) => b.d2 - a.d2);
-  for (let i = 0; i < sortedLong.length && mainSet.size < mstRouted.size + extraLong; i++) mainSet.add(sortedLong[i].i);
-
   for (let i = 0; i < routed.length; i++) {
     const e = routed[i];
-    const typeName = mainSet.has(i) ? "MAIN" : "SECONDARY";
+    const typeName = "SECONDARY";
     markPathAsTypedRoad({ grid, cfg, typeName, path: e.path, boundaryMask });
     graph.addRoad({ type: typeName, widthCells: cfg.roadTypes[typeName].widthCells, path: e.path });
   }
 
-  // Blocks & LOCAL (still handled by legacy "blocks/connectors" to keep building-space usable).
-  const blocks = floodFillBlocksByMask({ grid, boundaryMask });
+  // MAIN: choose gates from boundary secondary roads and upgrade shortest paths (subset of SECONDARY).
+  const mainGatePad = Math.max(2, cfg.growth.mainGatePad ?? 4);
+  const mainGateCount = Math.max(3, cfg.growth.mainGateCount ?? 4);
+  const mainGateMinSpacing = Math.max(4, cfg.growth.mainGateMinSpacing ?? 18);
+  const mainGateSearchBand = Math.max(mainGatePad, cfg.growth.mainGateSearchBand ?? mainGatePad);
+
+  const hubRoad = findNearestRoadCell({
+    grid,
+    x: hub.x,
+    y: hub.y,
+    mask: ROAD_TYPE_MASK.SECONDARY,
+    maxR: mainGateSearchBand,
+  });
+  let gateList = [];
+  if (hubRoad) {
+    const prev = bfsOnRoadMask({ grid, start: hubRoad, mask: ROAD_TYPE_MASK.SECONDARY });
+    gateList = pickGateRoadCells({
+      grid,
+      hub,
+      mask: ROAD_TYPE_MASK.SECONDARY,
+      count: mainGateCount,
+      pad: mainGatePad,
+      minSpacing: mainGateMinSpacing,
+      band: mainGateSearchBand,
+      prev,
+    });
+    const startIdx = hubRoad.y * w + hubRoad.x;
+    for (const gate of gateList) {
+      const goalIdx = gate.y * w + gate.x;
+      const path = reconstructPathFromPrev(prev, w, startIdx, goalIdx);
+      if (!path || path.length < 2) continue;
+      markPathAsTypedRoad({ grid, cfg, typeName: "MAIN", path, boundaryMask });
+      graph.addRoad({ type: "MAIN", widthCells: cfg.roadTypes.MAIN.widthCells, path });
+    }
+  }
+
+  // Blocks + mandatory access connectors.
+  const blocks = buildBlocksAndConnectors({ grid, graph, cfg, rng, boundaryMask });
+
+  if (cfg.growth.enableLocalV2) {
+    // LOCAL fill inside blocks (simple "Minecraft-friendly" grid).
+    const localPaths = buildLocalGridForBlocks({ grid, blocks, cfg, rng, hub, distToObs });
+    for (const path of localPaths) {
+      // Don't overpaint MAIN; LOCAL is allowed to connect to SECONDARY/LOCAL.
+      const clipped = [];
+      for (const pt of path) {
+        const [x, y] = pt;
+        if (!grid.inBounds(x, y)) break;
+        if (grid.isObstacle(x, y)) break;
+        if (grid.hasRoadType(x, y, ROAD_TYPE_MASK.MAIN)) break;
+        clipped.push(pt);
+        if (grid.isRoad(x, y)) break;
+      }
+      if (clipped.length < 2) continue;
+      markPathAsTypedRoad({ grid, cfg, typeName: "LOCAL", path: clipped, boundaryMask: null });
+      graph.addRoad({ type: "LOCAL", widthCells: cfg.roadTypes.LOCAL.widthCells, path: clipped });
+    }
+  }
+
   const sim = {
     grid,
     graph,
@@ -1319,6 +1726,7 @@ function createCitySimulationV2({ rng, cfg, w, h }) {
     stage: "DONE",
     done: true,
     _boundaryMask: boundaryMask,
+    _gates: gateList,
     _distToObs: distToObs,
     step() {},
   };

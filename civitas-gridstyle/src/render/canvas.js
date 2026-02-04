@@ -21,7 +21,7 @@ export class CanvasRenderer {
     return { px: (x + 0.5) * cellPx, py: (y + 0.5) * cellPx };
   }
 
-  draw({ grid, graph, blocks, cfg, stage = "DONE", done = true, debug = null, secondaryMap = null }) {
+  draw({ grid, graph, blocks, cfg, stage = "DONE", done = true, debug = null, secondaryMap = null, gates = null }) {
     const ctx = this.ctx;
     const cellPx = cfg.render.cellPx | 0;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -83,7 +83,7 @@ export class CanvasRenderer {
         ctx.strokeStyle = style.color;
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
-        const pxW = clamp(road.widthCells * cellPx * 0.70, 1.2, 18);
+        const pxW = Math.max(1.2, road.widthCells * cellPx * 0.70);
         ctx.lineWidth = pxW;
         ctx.beginPath();
         const p0 = this.cellToPx(pts[0][0], pts[0][1], cellPx);
@@ -135,23 +135,10 @@ export class CanvasRenderer {
       ctx.restore();
     };
 
-    // ФАЗА 2: MAIN body
-    drawRoadsBody((r) => r.type === "MAIN", 1.0);
-
-    // ФАЗА 2.2: MAIN hubs
-    drawPlazaHub();
-    drawIntersections({
-      mask: ROAD_TYPE_MASK.MAIN,
-      radiusPx: clamp(cellPx * 0.75, 3.2, 10),
-      fillStyle: "rgba(235,235,235,0.8)",
-      alpha: 0.92,
-      minRoadCount: 2,
-    });
-
     // PHASE 3: SECONDARY body (during/after secondary growth)
     if (stageAllowsSecondary) {
       drawRoadsBody((r) => r.type === "SECONDARY", 0.95);
-      // ФАЗА 3.2: SECONDARY intersections
+      // SECONDARY intersections
       drawIntersections({
         mask: ROAD_TYPE_MASK.SECONDARY | ROAD_TYPE_MASK.MAIN,
         radiusPx: clamp(cellPx * 0.42, 2.0, 6),
@@ -172,8 +159,34 @@ export class CanvasRenderer {
         alpha: 0.65,
         minRoadCount: 2,
       });
-      // Коннекторы и маркеры доступа поверх LOCAL
+      // Connectors and access markers above LOCAL
       drawRoadsBody((r) => r.tag === "CONNECTOR" || r.tag === "SNAP_CONNECTOR", 0.9);
+    }
+
+    // PHASE 2: MAIN body on top of secondary/local
+    drawRoadsBody((r) => r.type === "MAIN", 1.0);
+
+    // PHASE 2.2: MAIN hubs
+    drawPlazaHub();
+    drawIntersections({
+      mask: ROAD_TYPE_MASK.MAIN,
+      radiusPx: clamp(cellPx * 0.75, 3.2, 10),
+      fillStyle: "rgba(235,235,235,0.8)",
+      alpha: 0.92,
+      minRoadCount: 2,
+    });
+
+    // Gates (brown squares on boundary) � draw on top of roads
+    if (gates?.length) {
+      ctx.save();
+      ctx.fillStyle = "#8b5a2b";
+      const size = Math.max(1, Math.floor(cellPx * 0.9));
+      for (const g of gates) {
+        const px = g.x * cellPx + (cellPx - size) * 0.5;
+        const py = g.y * cellPx + (cellPx - size) * 0.5;
+        ctx.fillRect(px, py, size, size);
+      }
+      ctx.restore();
     }
 
     // Debug overlays
