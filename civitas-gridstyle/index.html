@@ -25,6 +25,14 @@
         </label>
 
         <label class="control">
+          <span>Buildings</span>
+          <select id="buildingPreset">
+            <option value="standard" selected>Standard</option>
+            <option value="belgian">Belgian</option>
+          </select>
+        </label>
+
+        <label class="control">
           <span>Zoom (px/cell)</span>
           <input id="zoom" type="range" min="2" max="12" step="1" value="6" />
           <output id="zoomValue">6</output>
@@ -112,6 +120,7 @@
       </section>
     </main>
 
-    <script type="module" src="./src/main.js"></script>
+    <script type="module" src="./src/main.js?v=3"></script>
+    <div id="blockTooltip" class="tooltip hidden"></div>
   </body>
 </html>

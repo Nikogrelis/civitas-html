@@ -13,15 +13,32 @@ export class CanvasRenderer {
 
   resizeToFit(grid, cfg) {
     const cellPx = cfg.render.cellPx | 0;
-    this.canvas.width = grid.w * cellPx;
-    this.canvas.height = grid.h * cellPx;
+    const w = grid.w * cellPx;
+    const h = grid.h * cellPx;
+    this.canvas.width = w;
+    this.canvas.height = h;
+    this.canvas.style.width = `${w}px`;
+    this.canvas.style.height = `${h}px`;
   }
 
   cellToPx(x, y, cellPx) {
     return { px: (x + 0.5) * cellPx, py: (y + 0.5) * cellPx };
   }
 
-  draw({ grid, graph, blocks, cfg, stage = "DONE", done = true, debug = null, secondaryMap = null, gates = null }) {
+  draw({
+    grid,
+    graph,
+    blocks,
+    buildings = null,
+    plazas = null,
+    farms = null,
+    cfg,
+    stage = "DONE",
+    done = true,
+    debug = null,
+    secondaryMap = null,
+    gates = null,
+  }) {
     const ctx = this.ctx;
     const cellPx = cfg.render.cellPx | 0;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -39,20 +56,66 @@ export class CanvasRenderer {
       }
     }
 
-    // PHASE 4: Blocks (subtle dirt tint under roads)
+    // PHASE 4: Blocks (colored zones)
     if (blocks?.length) {
       ctx.save();
-      ctx.globalAlpha = 0.10;
+      ctx.globalAlpha = 0.18;
+      let bi = 0;
       for (const b of blocks) {
-        const base = b.hasAccess ? "#6b4f2a" : "#7a5a33";
-        ctx.fillStyle = base;
+        const hue = (bi * 137.5) % 360;
+        const sat = b.hasAccess ? 32 : 24;
+        const light = b.hasAccess ? 46 : 40;
+        ctx.fillStyle = `hsl(${hue}, ${sat}%, ${light}%)`;
+        for (const [x, y] of b.cells) {
+          ctx.fillRect(x * cellPx, y * cellPx, cellPx, cellPx);
+        }
+        bi++;
+      }
+      ctx.restore();
+    }
+
+
+    if (farms?.length) {
+      ctx.save();
+      ctx.globalAlpha = 0.75;
+      const farmColors = [
+        "rgba(184, 154, 90, 0.85)",
+        "rgba(166, 140, 82, 0.85)",
+        "rgba(198, 166, 100, 0.85)",
+        "rgba(150, 128, 74, 0.85)",
+      ];
+      for (const f of farms) {
+        const tone = (f.tone ?? 0) | 0;
+        ctx.fillStyle = farmColors[tone % farmColors.length];
+        for (const [x, y] of f.cells) {
+          ctx.fillRect(x * cellPx, y * cellPx, cellPx, cellPx);
+        }
+      }
+      ctx.restore();
+    }
+    // PHASE 4.5: Plazas and buildings
+    if (plazas?.length) {
+      ctx.save();
+      ctx.globalAlpha = 0.75;
+      ctx.fillStyle = "rgba(128, 70, 210, 0.9)";
+      for (const p of plazas) {
+        for (const [x, y] of p.cells) {
+          ctx.fillRect(x * cellPx, y * cellPx, cellPx, cellPx);
+        }
+      }
+      ctx.restore();
+    }
+    if (buildings?.length) {
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = "rgba(130, 78, 38, 0.95)";
+      for (const b of buildings) {
         for (const [x, y] of b.cells) {
           ctx.fillRect(x * cellPx, y * cellPx, cellPx, cellPx);
         }
       }
       ctx.restore();
     }
-
     // Debug: Secondary suitability map (green = best, red = worst)
     if (debug?.showSecondaryMap && secondaryMap) {
       ctx.save();
@@ -80,18 +143,30 @@ export class CanvasRenderer {
         const style = ROAD_TYPES[road.tag === "CONNECTOR" ? "CONNECTOR" : road.type] ?? ROAD_TYPES.LOCAL;
         const pts = simplifyForRender(road.path);
         if (pts.length < 2) continue;
-        ctx.strokeStyle = style.color;
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
-        const pxW = Math.max(1.2, road.widthCells * cellPx * 0.70);
-        ctx.lineWidth = pxW;
-        ctx.beginPath();
-        const p0 = this.cellToPx(pts[0][0], pts[0][1], cellPx);
-        ctx.moveTo(p0.px, p0.py);
-        for (let i = 1; i < pts.length; i++) {
-          const p = this.cellToPx(pts[i][0], pts[i][1], cellPx);
-          ctx.lineTo(p.px, p.py);
+        const widthScale = cfg.render.roadWidthScale ?? 0.7;
+        const casingScale = cfg.render.roadCasingScale ?? 0;
+        const pxW = Math.max(1.2, road.widthCells * cellPx * widthScale);
+        const casingExtra = Math.max(0, Math.round(cellPx * casingScale));
+        const drawPath = () => {
+          ctx.beginPath();
+          const p0 = this.cellToPx(pts[0][0], pts[0][1], cellPx);
+          ctx.moveTo(p0.px, p0.py);
+          for (let i = 1; i < pts.length; i++) {
+            const p = this.cellToPx(pts[i][0], pts[i][1], cellPx);
+            ctx.lineTo(p.px, p.py);
+          }
+        };
+        if (style.casingColor && casingExtra > 0) {
+          ctx.strokeStyle = style.casingColor;
+          ctx.lineWidth = pxW + casingExtra * 2;
+          drawPath();
+          ctx.stroke();
         }
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = pxW;
+        drawPath();
         ctx.stroke();
       }
       ctx.restore();
@@ -186,6 +261,25 @@ export class CanvasRenderer {
         const py = g.y * cellPx + (cellPx - size) * 0.5;
         ctx.fillRect(px, py, size, size);
       }
+      ctx.restore();
+    }
+
+    // Scale bar
+    if (cfg.render.showScaleBar) {
+      const meters = Math.max(5, cfg.render.scaleBarMeters ?? 20);
+      const barPx = meters * cellPx;
+      const pad = 12;
+      const y = this.canvas.height - pad;
+      ctx.save();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(20,20,20,0.65)";
+      ctx.beginPath();
+      ctx.moveTo(pad, y);
+      ctx.lineTo(pad + barPx, y);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(20,20,20,0.8)";
+      ctx.font = "12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+      ctx.fillText(`${meters} m`, pad, y - 6);
       ctx.restore();
     }
 

@@ -1,4 +1,4 @@
-п»їimport { Grid } from "../grid/grid.js";
+import { Grid } from "../grid/grid.js";
 import { DIRS_8, dirIndexDelta } from "../grid/neighbors8.js";
 import { Graph } from "../graph/graph.js";
 import { generateObstacles } from "../fields/obstacles.js";
@@ -167,6 +167,53 @@ function buildDistanceToObstacles(grid) {
   return dist;
 }
 
+function buildDistanceToRoads(grid) {
+  const w = grid.w;
+  const h = grid.h;
+  const n = w * h;
+  const dist = new Int16Array(n);
+  dist.fill(-1);
+
+  const qx = new Int16Array(n);
+  const qy = new Int16Array(n);
+  let qs = 0;
+  let qe = 0;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!grid.isRoad(x, y)) continue;
+      const i = y * w + x;
+      dist[i] = 0;
+      qx[qe] = x;
+      qy[qe] = y;
+      qe++;
+    }
+  }
+
+  if (qe === 0) return dist;
+
+  const dirs4 = [DIRS_8[0], DIRS_8[2], DIRS_8[4], DIRS_8[6]];
+  while (qs < qe) {
+    const x = qx[qs];
+    const y = qy[qs];
+    qs++;
+    const i = y * w + x;
+    const d = dist[i];
+    for (const dd of dirs4) {
+      const nx = x + dd.dx;
+      const ny = y + dd.dy;
+      if (!grid.inBounds(nx, ny)) continue;
+      if (grid.isObstacle(nx, ny)) continue;
+      const ni = ny * w + nx;
+      if (dist[ni] !== -1) continue;
+      dist[ni] = d + 1;
+      qx[qe] = nx;
+      qy[qe] = ny;
+      qe++;
+    }
+  }
+  return dist;
+}
 function aStar8({ grid, start, goal, typeCfg, cfg, allowedDirIs = null, extraCostFn = null }) {
   const open = new MinHeap();
   const gScore = new Map();
@@ -255,7 +302,7 @@ function pickDirection(rng, scored) {
   scored.sort((a, b) => a.score - b.score);
   const best = scored[0];
   if (!best) return null;
-  // РќРµРјРЅРѕРіРѕ СЃС‚РѕС…Р°СЃС‚РёРєРё: РёРЅРѕРіРґР° Р±РµСЂС‘Рј РѕРґРёРЅ РёР· С‚РѕРї-3.
+  // Немного стохастики: иногда берём один из топ-3.
   const k = Math.min(3, scored.length);
   const pickI = rng.chance(0.20) ? rng.int(0, k - 1) : 0;
   return scored[pickI].dirI;
@@ -266,8 +313,8 @@ function resetRoadLayers(grid) {
 }
 
 function connectWithinRadius8({ grid, start, goal, radius, allowedDirIs = null }) {
-  // Dijkstra РїРѕ СЃРѕСЃС‚РѕСЏРЅРёСЏРј (x,y,prevDir) СЃ Р¶С‘СЃС‚РєРёРј РїСЂРёРѕСЂРёС‚РµС‚РѕРј:
-  // 1) РјРёРЅРёРјСѓРј РїРѕРІРѕСЂРѕС‚РѕРІ, 2) РјРёРЅРёРјСѓРј РґР»РёРЅС‹, 3) Р·Р°С‚РµРј Р»С‘РіРєР°СЏ СЃС‚РѕРёРјРѕСЃС‚СЊ РєР»РµС‚РѕРє.
+  // Dijkstra по состояниям (x,y,prevDir) с жёстким приоритетом:
+  // 1) минимум поворотов, 2) минимум длины, 3) затем лёгкая стоимость клеток.
   const r = Math.max(1, radius | 0);
   const minX = start.x - r;
   const maxX = start.x + r;
@@ -389,7 +436,7 @@ function anyDirFromMask(mask) {
 }
 
 function perpendicularDirs(dirI) {
-  // 90В° РїРµСЂРїРµРЅРґРёРєСѓР»СЏСЂ (delta=2)
+  // 90° перпендикуляр (delta=2)
   return [((dirI + 2) % 8) | 0, ((dirI + 6) % 8) | 0];
 }
 
@@ -429,7 +476,7 @@ function sampleSecondaryLenTarget({ rng, cfg }) {
   const mean = Math.max(6, cfg.growth.secondaryLenTargetMean | 0);
   const min = Math.max(4, Math.min(mean, cfg.growth.secondaryLenTargetMin | 0));
   const max = Math.max(mean + 2, cfg.roadTypes.SECONDARY.maxLenCells | 0);
-  // РўСЂРµСѓРіРѕР»СЊРЅРѕРµ СЂР°СЃРїСЂРµРґРµР»РµРЅРёРµ (min..max) СЃ РјРѕРґРѕР№ РѕРєРѕР»Рѕ mean.
+  // Треугольное распределение (min..max) с модой около mean.
   const u = rng.f32();
   const v = rng.f32();
   const tri01 = (u + v) * 0.5;
@@ -531,7 +578,7 @@ function makeSecondarySeeds({ rng, grid, mainRoads, cfg }) {
     }
   }
 
-  // Р¤РёР»СЊС‚СЂСѓРµРј СЃРµРјРµРЅР° РЅР° РїСЂРµРїСЏС‚СЃС‚РІРёСЏС… Рё РІРЅРµ РєР°СЂС‚С‹.
+  // Фильтруем семена на препятствиях и вне карты.
   return seeds.filter((s) => grid.inBounds(s.x, s.y) && !grid.isObstacle(s.x, s.y));
 }
 
@@ -595,7 +642,7 @@ function stepBranchConstrained({ grid, graph, rng, cfg, branch, boundaryMask = n
   const snapRoadMask = isSecondary ? ROAD_TYPE_MASK.MAIN | ROAD_TYPE_MASK.SECONDARY : 0;
 
   // Snap
-  // SECONDARY: snap=terminate (РєРІР°СЂС‚Р°Р»СЊРЅС‹Р№ РєСЂРёС‚РµСЂРёР№ РѕСЃС‚Р°РЅРѕРІРєРё)
+  // SECONDARY: snap=terminate (квартальный критерий остановки)
   if (isSecondary) {
     const snap = findSnapTarget({
       grid,
@@ -633,7 +680,7 @@ function stepBranchConstrained({ grid, graph, rng, cfg, branch, boundaryMask = n
     return;
   }
 
-  // SECONDARY: Р¶С‘СЃС‚РєРёР№ minRun: С‚РѕР»СЊРєРѕ forward РёР»Рё terminate.
+  // SECONDARY: жёсткий minRun: только forward или terminate.
   if (isSecondary && branch.minRunRemaining > 0) {
     if (!isCardinalDir(forward) && branch.diagEscapeRemaining <= 0) {
       branch.done = true;
@@ -651,7 +698,7 @@ function stepBranchConstrained({ grid, graph, rng, cfg, branch, boundaryMask = n
       branch.done = true;
       return;
     }
-    // Hard anti-parallel/spacing: Р·Р°РїСЂРµС‰Р°РµРј Р·Р°С…РѕРґРёС‚СЊ РІ Р±РѕРєРѕРІС‹Рµ reserved-РїРѕР»РѕСЃС‹.
+    // Hard anti-parallel/spacing: запрещаем заходить в боковые reserved-полосы.
     if (grid.isReservedBySecondary(nx, ny) || grid.isReservedByMain(nx, ny)) {
       branch.done = true;
       return;
@@ -685,7 +732,7 @@ function stepBranchConstrained({ grid, graph, rng, cfg, branch, boundaryMask = n
     add((forward + 6) % 8);
   }
 
-  // LOCAL: РјРѕР¶РµС‚ РґРёР°РіРѕРЅР°Р»РёС‚СЊ, РЅРѕ СЃ Р±РѕР»РµРµ СЃРёР»СЊРЅС‹Рј spacing.
+  // LOCAL: может диагоналить, но с более сильным spacing.
   if (typeName === "LOCAL" && allowTurn) {
     candidates.push(((forward + 1) % 8) | 0, ((forward + 7) % 8) | 0);
   }
@@ -707,10 +754,10 @@ function stepBranchConstrained({ grid, graph, rng, cfg, branch, boundaryMask = n
       if (grid.isReservedBySecondary(nx, ny)) continue;
     }
 
-    // SECONDARY: РїРѕРІРѕСЂРѕС‚ РїРѕ cooldown РЅРµРІРѕР·РјРѕР¶РµРЅ (РєСЂРѕРјРµ forward)
+    // SECONDARY: поворот по cooldown невозможен (кроме forward)
     if (isSecondary && dirI !== forward && !allowTurn) continue;
 
-    // SECONDARY: РЅРµР±РѕР»СЊС€РѕР№ Р±РѕРЅСѓСЃ РїСЂСЏРјРѕР№ Р»РёРЅРёРё
+    // SECONDARY: небольшой бонус прямой линии
     const extraTurn = isSecondary && dirI !== forward ? 0.25 : 0;
 
     const { ok, score } = directionScore({
@@ -730,7 +777,7 @@ function stepBranchConstrained({ grid, graph, rng, cfg, branch, boundaryMask = n
   scored.sort((a, b) => a.score - b.score);
   const pick = scored[0];
   if (!pick) {
-    // SECONDARY: РґРёР°РіРѕРЅР°Р»Рё С‚РѕР»СЊРєРѕ Р°РІР°СЂРёР№РЅРѕ Рё С‚РѕР»СЊРєРѕ РїРѕ Р±СЋРґР¶РµС‚Сѓ.
+    // SECONDARY: диагонали только аварийно и только по бюджету.
     if (isSecondary && (cfg.growth.secondaryAllowDiagonals || branch.diagEscapeRemaining > 0)) {
       const fallback = [((forward + 1) % 8) | 0, ((forward + 7) % 8) | 0];
       for (const dirI of fallback) {
@@ -739,7 +786,7 @@ function stepBranchConstrained({ grid, graph, rng, cfg, branch, boundaryMask = n
         const nx = x + d.dx;
         const ny = y + d.dy;
         if (!grid.inBounds(nx, ny) || grid.isObstacle(nx, ny) || grid.isRoad(nx, ny)) continue;
-        // Р”РёР°РіРѕРЅР°Р»СЊ РґРѕРїСѓСЃРєР°РµРј С‚РѕР»СЊРєРѕ РµСЃР»Рё СЏРІРЅРѕ В«Р·Р°СЃС‚СЂСЏР»РёВ» (РЅРµС‚ forward) РёР»Рё СЂСЏРґРѕРј РґРёР°РіРѕРЅР°Р»СЊРЅР°СЏ MAIN.
+        // Диагональ допускаем только если явно «застряли» (нет forward) или рядом диагональная MAIN.
         const f = DIRS_8[forward];
         const fx = x + f.dx;
         const fy = y + f.dy;
@@ -772,7 +819,7 @@ function stepBranchConstrained({ grid, graph, rng, cfg, branch, boundaryMask = n
         return;
       }
     } else {
-      // РќРµРєСѓРґР° РёРґС‚Рё вЂ” terminate.
+      // Некуда идти — terminate.
       branch.done = true;
       return;
     }
@@ -798,13 +845,13 @@ function stepBranchConstrained({ grid, graph, rng, cfg, branch, boundaryMask = n
   branch.prevDirI = dirI;
   markRoadCellTyped({ grid, cfg, typeName, x: nx, y: ny, dirI, boundaryMask });
 
-  // cooldown СѓР±С‹РІР°РµС‚ РЅР° РєР°Р¶РґРѕРј С€Р°РіРµ
+  // cooldown убывает на каждом шаге
   if (branch.turnCooldownRemaining > 0) branch.turnCooldownRemaining--;
 
   if (isSecondary) {
     if (dirI === forward && branch.minRunRemaining > 0) branch.minRunRemaining--;
     if (dirI !== forward) {
-      // SECONDARY: Р±Р°Р·РѕРІРѕ РґРµСЂР¶РёРј 4 РЅР°РїСЂР°РІР»РµРЅРёСЏ. Р”РёР°РіРѕРЅР°Р»СЊ вЂ” Р»РёС€СЊ РєРѕСЂРѕС‚РєРёР№ В«escapeВ» Р±РµР· СЃРјРµРЅС‹ forward.
+      // SECONDARY: базово держим 4 направления. Диагональ — лишь короткий «escape» без смены forward.
       if (isCardinalDir(dirI)) branch.forwardDirI = dirI;
       branch.minRunRemaining = cfg.growth.secondaryMinRunCells | 0;
       branch.turnCooldownRemaining = cfg.growth.secondaryTurnCooldownCells | 0;
@@ -854,7 +901,7 @@ function growBranches({ grid, graph, rng, cfg, type, startPoints, attractor }) {
       const y = last[1];
       const goalVec = attractor ? goalBiasToPoint({ x, y }, attractor, 0.9) : null;
 
-      // Р’РµС‚РІР»РµРЅРёРµ: РґРµР»Р°РµРј РѕС‚РґРµР»СЊРЅСѓСЋ РІРµС‚РєСѓ РѕС‚ С‚РµРєСѓС‰РµР№ С‚РѕС‡РєРё.
+      // Ветвление: делаем отдельную ветку от текущей точки.
       const density = grid.getRoadCount(x, y);
       const branchP = typeCfg.branchProb * (density ? 0.6 : 1.0);
       if (rng.chance(branchP) && branches.length < cfg.growth.maxBranches) {
@@ -885,7 +932,7 @@ function growBranches({ grid, graph, rng, cfg, type, startPoints, attractor }) {
         if (snap && snap.d2 > 0) {
           const targetNodeId = snap.kind === "node" ? snap.nodeId : graph.ensureNode(snap.x, snap.y);
           if (!canAttachNode(graph, targetNodeId, typeCfg.maxNodeDegree)) {
-            // РЈР·РµР» РїРµСЂРµРіСЂСѓР¶РµРЅ вЂ” РїСЂРѕРґРѕР»Р¶Р°РµРј СЂРѕСЃС‚, С‡С‚РѕР±С‹ РЅР°Р№С‚Рё РґСЂСѓРіРѕР№ СЃРЅР°Рї.
+            // Узел перегружен — продолжаем рост, чтобы найти другой снап.
           } else {
             b.path.push([snap.x, snap.y]);
             b.done = true;
@@ -923,7 +970,7 @@ function growBranches({ grid, graph, rng, cfg, type, startPoints, attractor }) {
           b.done = true;
           break;
         }
-        const allowOnRoad = true; // С‡С‚РѕР±С‹ РјРѕР¶РЅРѕ Р±С‹Р»Рѕ РїСЂРёС‚РєРЅСѓС‚СЊСЃСЏ Рё Р·Р°РІРµСЂС€РёС‚СЊСЃСЏ
+        const allowOnRoad = true; // чтобы можно было приткнуться и завершиться
         if (wouldSelfCollide({ grid, x: nx, y: ny, allowOnRoad })) {
           b.done = true;
           break;
@@ -934,7 +981,7 @@ function growBranches({ grid, graph, rng, cfg, type, startPoints, attractor }) {
         b.prevDirI = dirI;
         b.len++;
 
-        // Р•СЃР»Рё РїСЂРёС€Р»Рё РІ РґРѕСЂРѕРіСѓ вЂ” Р·Р°РІРµСЂС€Р°РµРј РєР°Рє snap.
+        // Если пришли в дорогу — завершаем как snap.
         if (grid.isRoad(nx, ny)) {
           b.done = true;
           break;
@@ -944,7 +991,7 @@ function growBranches({ grid, graph, rng, cfg, type, startPoints, attractor }) {
     if (!active) break;
   }
 
-  // Р—Р°РїРёСЃС‹РІР°РµРј РІРµС‚РєРё РІ РіСЂР°С„.
+  // Записываем ветки в граф.
   for (const b of branches) {
     if (b.path.length < 2) continue;
     const cleaned = antiZigZagReorder(b.path, grid);
@@ -1374,7 +1421,7 @@ function pickGateRoadCells({ grid, hub, mask, count, pad, minSpacing, band, prev
   const w = grid.w;
   const h = grid.h;
   const edgeBand = Math.max(pad, band ?? pad);
-  const candidates = [];
+  let candidates = [];
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const dEdge = Math.min(x, y, w - 1 - x, h - 1 - y);
@@ -1387,6 +1434,19 @@ function pickGateRoadCells({ grid, hub, mask, count, pad, minSpacing, band, prev
       candidates.push({ x, y, score });
     }
   }
+
+  if (!candidates.length) {
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (!grid.hasRoadType(x, y, mask)) continue;
+        const i = y * w + x;
+        if (prev && prev[i] === -1) continue;
+        const dHub = Math.hypot(x - hub.x, y - hub.y);
+        candidates.push({ x, y, score: dHub });
+      }
+    }
+  }
+
   candidates.sort((a, b) => b.score - a.score);
   const picked = [];
   for (const c of candidates) {
@@ -1584,6 +1644,336 @@ function buildLocalGridForBlocks({ grid, blocks, cfg, rng, hub, distToObs }) {
   return cleaned;
 }
 
+function buildBuildingPlans({ grid, blocks, cfg, rng, distToRoad }) {
+  const buildings = [];
+  const plazas = [];
+  const farms = [];
+  if (!cfg.buildings?.enable || !blocks?.length) return { buildings, plazas, farms };
+
+  const w = grid.w;
+  const h = grid.h;
+  const cfgB = cfg.buildings;
+  const autoBuffer = Math.max(
+    1,
+    Math.round(((cfg.render?.roadWidthScale ?? 0.5) * (cfg.roadTypes?.MAIN?.widthCells ?? 8) * 0.5))
+  );
+  const roadBuffer = Math.max(0, (cfgB.roadBufferCells ?? 0) > 0 ? cfgB.roadBufferCells : autoBuffer + (cfgB.roadBufferExtra ?? 0));
+  const frontageDepth = Math.max(1, (cfgB.frontageDepthCells ?? 0) > 0 ? cfgB.frontageDepthCells : Math.max(2, roadBuffer + 1));
+  const farmBand = Math.max(0, cfgB.farmEdgeBand ?? 0);
+  const farmMinArea = Math.max(0, cfgB.farmMinArea ?? 0);
+  const coverageTarget = Math.max(0.15, Math.min(0.9, cfgB.coverageTarget ?? 0.55));
+  const minCoverageAfter = Math.max(0.1, Math.min(0.9, cfgB.coverageMinAfterAttempts ?? 0.3));
+  const denseWidthMin = Math.max(4, cfgB.denseWidthMin ?? Math.max(4, Math.floor(cfgB.houseWidthMin * 0.75)));
+  const denseWidthMax = Math.max(denseWidthMin, cfgB.denseWidthMax ?? Math.max(denseWidthMin, Math.floor(cfgB.houseWidthMax * 0.7)));
+  const denseDepthMin = Math.max(4, cfgB.denseDepthMin ?? Math.max(4, Math.floor(cfgB.houseDepthMin * 0.75)));
+  const denseDepthMax = Math.max(denseDepthMin, cfgB.denseDepthMax ?? Math.max(denseDepthMin, Math.floor(cfgB.houseDepthMax * 0.7)));
+  const denseFrontageRelax = Math.max(0, cfgB.denseFrontageRelax ?? 0);
+  const denseMinFrontage = Math.max(2, cfgB.minFrontage - denseFrontageRelax);
+  const farmPlotWidthMin = Math.max(3, cfgB.farmPlotWidthMin ?? 6);
+  const farmPlotWidthMax = Math.max(farmPlotWidthMin, cfgB.farmPlotWidthMax ?? 20);
+  const farmPlotHeightMin = Math.max(3, cfgB.farmPlotHeightMin ?? 6);
+  const farmPlotHeightMax = Math.max(farmPlotHeightMin, cfgB.farmPlotHeightMax ?? 24);
+  const farmCoverageTarget = Math.max(0.5, Math.min(0.98, cfgB.farmCoverageTarget ?? 0.9));
+  const isBelgian = cfgB.style === "belgian";
+  const belgianBandDepth = Math.max(2, cfgB.belgianBandDepth ?? 8);
+  const microWidthMin = Math.max(3, denseWidthMin - 2);
+  const microWidthMax = Math.max(microWidthMin, denseWidthMax - 1);
+  const microDepthMin = Math.max(3, denseDepthMin - 2);
+  const microDepthMax = Math.max(microDepthMin, denseDepthMax - 1);
+  const microMinFrontage = Math.max(1, denseMinFrontage - 1);
+  const dirs4 = [
+    [0, -1],
+    [1, 0],
+    [0, 1],
+    [-1, 0],
+  ];
+
+  function boundsOf(cells) {
+    let minX = w,
+      minY = h,
+      maxX = 0,
+      maxY = 0;
+    for (const [x, y] of cells) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+    return { minX, minY, maxX, maxY };
+  }
+
+  function buildMask(cells, bounds) {
+    const bw = bounds.maxX - bounds.minX + 1;
+    const bh = bounds.maxY - bounds.minY + 1;
+    const mask = new Uint8Array(bw * bh);
+    for (const [x, y] of cells) {
+      const ix = x - bounds.minX;
+      const iy = y - bounds.minY;
+      mask[iy * bw + ix] = 1;
+    }
+    return { mask, bw, bh };
+  }
+
+  function rectFits(mask, bw, bh, bounds, x0, y0, rw, rh) {
+    if (x0 < bounds.minX || y0 < bounds.minY) return false;
+    if (x0 + rw - 1 > bounds.maxX || y0 + rh - 1 > bounds.maxY) return false;
+    for (let y = y0; y < y0 + rh; y++) {
+      for (let x = x0; x < x0 + rw; x++) {
+        const ix = x - bounds.minX;
+        const iy = y - bounds.minY;
+        const mi = iy * bw + ix;
+        if (!mask[mi]) return false;
+        if (grid.isObstacle(x, y) || grid.isRoad(x, y)) return false;
+        if (distToRoad) {
+          const d = distToRoad[y * w + x];
+          if (d >= 0 && d < roadBuffer) return false;
+        }
+      }
+    }
+    return true;
+  }
+
+
+  function rectFitsFarm(mask, bw, bh, bounds, x0, y0, rw, rh) {
+    if (x0 < bounds.minX || y0 < bounds.minY) return false;
+    if (x0 + rw - 1 > bounds.maxX || y0 + rh - 1 > bounds.maxY) return false;
+    for (let y = y0; y < y0 + rh; y++) {
+      for (let x = x0; x < x0 + rw; x++) {
+        const ix = x - bounds.minX;
+        const iy = y - bounds.minY;
+        const mi = iy * bw + ix;
+        if (!mask[mi]) return false;
+        if (grid.isObstacle(x, y) || grid.isRoad(x, y)) return false;
+      }
+    }
+    return true;
+  }
+
+  function addRectCells(out, x0, y0, rw, rh, cutDiag = false) {
+    const cells = [];
+    let cut = 0;
+    if (cutDiag) cut = Math.max(2, Math.floor(Math.min(rw, rh) / 3));
+    for (let y = y0; y < y0 + rh; y++) {
+      for (let x = x0; x < x0 + rw; x++) {
+        if (cutDiag) {
+          const dx = x - x0;
+          const dy = y - y0;
+          if (dx + dy < cut) continue;
+        }
+        cells.push([x, y]);
+      }
+    }
+    out.push({ cells });
+    return cells;
+  }
+
+  function dominantRoadDir(cells) {
+    const counts = [0, 0, 0, 0];
+    for (const [x, y] of cells) {
+      for (let i = 0; i < 4; i++) {
+        const nx = x + dirs4[i][0];
+        const ny = y + dirs4[i][1];
+        if (!grid.inBounds(nx, ny)) continue;
+        if (grid.isRoad(nx, ny)) counts[i]++;
+      }
+    }
+    let best = 0;
+    for (let i = 1; i < 4; i++) if (counts[i] > counts[best]) best = i;
+    return best;
+  }
+
+  function frontageCount(x0, y0, rw, rh, dirI, depth) {
+      let count = 0;
+      const maxD = Math.max(1, depth | 0);
+      if (dirI === 0) {
+        for (let x = x0; x < x0 + rw; x++) {
+          for (let d = 1; d <= maxD; d++) {
+            const y = y0 - d;
+            if (!grid.inBounds(x, y)) continue;
+            if (grid.isRoad(x, y)) {
+              count++;
+              break;
+            }
+          }
+        }
+      } else if (dirI === 2) {
+        for (let x = x0; x < x0 + rw; x++) {
+          for (let d = 1; d <= maxD; d++) {
+            const y = y0 + rh - 1 + d;
+            if (!grid.inBounds(x, y)) continue;
+            if (grid.isRoad(x, y)) {
+              count++;
+              break;
+            }
+          }
+        }
+      } else if (dirI === 1) {
+        for (let y = y0; y < y0 + rh; y++) {
+          for (let d = 1; d <= maxD; d++) {
+            const x = x0 + rw - 1 + d;
+            if (!grid.inBounds(x, y)) continue;
+            if (grid.isRoad(x, y)) {
+              count++;
+              break;
+            }
+          }
+        }
+      } else if (dirI === 3) {
+        for (let y = y0; y < y0 + rh; y++) {
+          for (let d = 1; d <= maxD; d++) {
+            const x = x0 - d;
+            if (!grid.inBounds(x, y)) continue;
+            if (grid.isRoad(x, y)) {
+              count++;
+              break;
+            }
+          }
+        }
+      }
+      return count;
+  }
+
+  for (const b of blocks) {
+    if (!b?.cells?.length) continue;
+    const area = b.cells.length;
+    const bounds = boundsOf(b.cells);
+    const isEdge =
+      farmBand > 0 &&
+      (bounds.minX <= farmBand ||
+        bounds.minY <= farmBand ||
+        bounds.maxX >= w - 1 - farmBand ||
+        bounds.maxY >= h - 1 - farmBand);
+    if (isEdge && area >= farmMinArea) {
+      const { mask, bw, bh } = buildMask(b.cells, bounds);
+      let farmCovered = 0;
+      const farmAttempts = Math.max(40, Math.round(area / 40));
+      for (let t = 0; t < farmAttempts && farmCovered / area < farmCoverageTarget; t++) {
+        const rw = rng.int(farmPlotWidthMin, farmPlotWidthMax);
+        const rh = rng.int(farmPlotHeightMin, farmPlotHeightMax);
+        const x0 = rng.int(bounds.minX, Math.max(bounds.minX, bounds.maxX - rw));
+        const y0 = rng.int(bounds.minY, Math.max(bounds.minY, bounds.maxY - rh));
+        if (!rectFitsFarm(mask, bw, bh, bounds, x0, y0, rw, rh)) continue;
+        const cells = addRectCells(farms, x0, y0, rw, rh, false);
+        farms[farms.length - 1].tone = rng.int(0, 3);
+        farmCovered += cells.length;
+        for (const [x, y] of cells) {
+          const ix = x - bounds.minX;
+          const iy = y - bounds.minY;
+          mask[iy * bw + ix] = 0;
+        }
+      }
+      if (farmCovered === 0) farms.push({ cells: b.cells, tone: rng.int(0, 3) });
+      continue;
+    }
+    if (area < cfgB.smallLotArea) {
+      plazas.push({ cells: b.cells });
+      continue;
+    }
+
+    const { mask, bw, bh } = buildMask(b.cells, bounds);
+    if (isBelgian && distToRoad) {
+      let bandCount = 0;
+      const minBand = Math.max(4, Math.floor(area * (cfgB.belgianBandMinRatio ?? 0.05)));
+      for (const [x, y] of b.cells) {
+        const d = distToRoad[y * w + x];
+        const mi = (y - bounds.minY) * bw + (x - bounds.minX);
+        const inBand = d >= roadBuffer && d <= roadBuffer + belgianBandDepth;
+        if (inBand) bandCount++;
+        else mask[mi] = 0;
+      }
+      if (bandCount < minBand) {
+        for (const [x, y] of b.cells) {
+          const mi = (y - bounds.minY) * bw + (x - bounds.minX);
+          mask[mi] = 1;
+        }
+      }
+    }
+    const dirI = dominantRoadDir(b.cells);
+    const maxBuildings = Math.max(4, Math.round(area / Math.max(36, cfgB.houseAreaTarget * 0.3)));
+    let placed = 0;
+    let covered = 0;
+
+    const attempts = Math.max(80, Math.round(cfgB.maxAttemptsPerBlock + area * 0.25));
+    for (let t = 0; t < attempts && placed < maxBuildings && covered / area < coverageTarget; t++) {
+      const useRow = rng.chance(isBelgian ? 0.75 : 0.5);
+      const rw = useRow
+        ? rng.int(cfgB.rowWidthMin, cfgB.rowWidthMax)
+        : rng.int(cfgB.houseWidthMin, cfgB.houseWidthMax);
+      const rh = useRow
+        ? rng.int(cfgB.rowDepthMin, cfgB.rowDepthMax)
+        : rng.int(cfgB.houseDepthMin, cfgB.houseDepthMax);
+      const x0 = rng.int(bounds.minX, Math.max(bounds.minX, bounds.maxX - rw));
+      const y0 = rng.int(bounds.minY, Math.max(bounds.minY, bounds.maxY - rh));
+      if (!rectFits(mask, bw, bh, bounds, x0, y0, rw, rh)) continue;
+      if (frontageCount(x0, y0, rw, rh, dirI, frontageDepth) < cfgB.minFrontage) continue;
+      const cutDiag = rng.chance(cfgB.trapezoidChance);
+      const cells = addRectCells(buildings, x0, y0, rw, rh, cutDiag);
+      covered += cells.length;
+      for (const [x, y] of cells) {
+        const ix = x - bounds.minX;
+        const iy = y - bounds.minY;
+        mask[iy * bw + ix] = 0;
+      }
+      placed++;
+    }
+
+    if (covered / area < coverageTarget) {
+      const denseAttempts = Math.max(60, Math.round(area * 0.35));
+      for (let t = 0; t < denseAttempts && covered / area < coverageTarget; t++) {
+        const rw = rng.int(denseWidthMin, denseWidthMax);
+        const rh = rng.int(denseDepthMin, denseDepthMax);
+        const x0 = rng.int(bounds.minX, Math.max(bounds.minX, bounds.maxX - rw));
+        const y0 = rng.int(bounds.minY, Math.max(bounds.minY, bounds.maxY - rh));
+        if (!rectFits(mask, bw, bh, bounds, x0, y0, rw, rh)) continue;
+        if (frontageCount(x0, y0, rw, rh, dirI, frontageDepth) < denseMinFrontage) continue;
+        const cutDiag = rng.chance(cfgB.trapezoidChance * 0.5);
+        const cells = addRectCells(buildings, x0, y0, rw, rh, cutDiag);
+        covered += cells.length;
+        for (const [x, y] of cells) {
+          const ix = x - bounds.minX;
+          const iy = y - bounds.minY;
+          mask[iy * bw + ix] = 0;
+        }
+        placed++;
+      }
+    }
+
+    if (covered / area < coverageTarget) {
+      const microAttempts = Math.max(80, Math.round(area * 0.6));
+      for (let t = 0; t < microAttempts && covered / area < coverageTarget; t++) {
+        const rw = rng.int(microWidthMin, microWidthMax);
+        const rh = rng.int(microDepthMin, microDepthMax);
+        const x0 = rng.int(bounds.minX, Math.max(bounds.minX, bounds.maxX - rw));
+        const y0 = rng.int(bounds.minY, Math.max(bounds.minY, bounds.maxY - rh));
+        if (!rectFits(mask, bw, bh, bounds, x0, y0, rw, rh)) continue;
+        if (frontageCount(x0, y0, rw, rh, dirI, frontageDepth) < microMinFrontage) continue;
+        const cutDiag = rng.chance(cfgB.trapezoidChance * 0.4);
+        const cells = addRectCells(buildings, x0, y0, rw, rh, cutDiag);
+        covered += cells.length;
+        for (const [x, y] of cells) {
+          const ix = x - bounds.minX;
+          const iy = y - bounds.minY;
+          mask[iy * bw + ix] = 0;
+        }
+        placed++;
+      }
+    }
+
+    if (covered / area < minCoverageAfter && area >= cfgB.monoblockMinArea) {
+      const fill = cfgB.monoblockFillMin + (cfgB.monoblockFillMax - cfgB.monoblockFillMin) * rng.f32();
+      const targetArea = Math.max(1, Math.round(area * fill));
+      const side = Math.max(4, Math.floor(Math.sqrt(targetArea)));
+      const rw = Math.min(bounds.maxX - bounds.minX + 1, side);
+      const rh = Math.min(bounds.maxY - bounds.minY + 1, Math.max(4, Math.round(targetArea / rw)));
+      const x0 = bounds.minX + ((bounds.maxX - bounds.minX - rw) / 2) | 0;
+      const y0 = bounds.minY + ((bounds.maxY - bounds.minY - rh) / 2) | 0;
+      if (rectFits(mask, bw, bh, bounds, x0, y0, rw, rh)) addRectCells(buildings, x0, y0, rw, rh, false);
+    }
+  }
+
+  return { buildings, plazas, farms };
+}
+
 function createCitySimulationV2({ rng, cfg, w, h }) {
   const grid = new Grid(w, h);
   const graph = new Graph(grid);
@@ -1598,12 +1988,16 @@ function createCitySimulationV2({ rng, cfg, w, h }) {
 
   const step = Math.max(1, cfg.growth.spiralStep ?? 1);
   const waterAvoidDist = Math.max(0, cfg.growth.spiralWaterAvoidDist ?? 0);
+  const baseArea = 128 * 128;
+  const areaScale = Math.max(1, (w * h) / baseArea);
+  const sizeScale = Math.max(1, Math.sqrt(areaScale));
 
   // SECONDARY: spiral points + kNN, routed with no intersections.
+  const targetCount = Math.max(20, Math.round((cfg.growth.spiralPointCount ?? 140) * areaScale));
   const points = generateSpiralPoints({
     rng,
     grid,
-    count: Math.max(20, cfg.growth.spiralPointCount ?? 140),
+    count: targetCount,
     c: Math.max(2, cfg.growth.spiralC ?? 3.2),
     step,
     noiseR: Math.max(0, cfg.growth.spiralNoiseR ?? 0.9),
@@ -1613,6 +2007,22 @@ function createCitySimulationV2({ rng, cfg, w, h }) {
     distToObs,
     waterAvoidDist,
   });
+  // Ensure points exist near edges for gate selection on larger maps.
+  const edgeTargets = gateCandidates(w, h).map((g) => findNearestFree(grid, g.x, g.y, 10));
+  const minDist2 = Math.max(0, cfg.growth.spiralMinDist ?? 2) ** 2;
+  for (const p of edgeTargets) {
+    if (!grid.inBounds(p.x, p.y) || grid.isObstacle(p.x, p.y)) continue;
+    let ok = true;
+    for (const q of points) {
+      const dx = q.x - p.x;
+      const dy = q.y - p.y;
+      if (dx * dx + dy * dy < minDist2) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) points.push({ x: p.x, y: p.y });
+  }
   if (!points.some((p) => p.x === hub.x && p.y === hub.y)) points.push({ x: hub.x, y: hub.y });
 
   const nodeSet = new Set(points.map((p) => key(p.x, p.y)));
@@ -1620,7 +2030,10 @@ function createCitySimulationV2({ rng, cfg, w, h }) {
   const deg = new Int16Array(points.length);
   const degMax = Math.max(2, cfg.growth.spiralDegMax ?? 4);
   const occ = new Uint8Array(w * h);
-  const maxEdges = Math.max(0, cfg.growth.spiralMaxEdges ?? Math.round(points.length * 1.6));
+  const maxEdges = Math.max(
+    0,
+    Math.round((cfg.growth.spiralMaxEdges ?? Math.round(points.length * 1.6)) * areaScale)
+  );
 
   // Route MST edges first (keeps the graph connected), then add more edges.
   const mstCand = buildMstEdgeSet(cand, points.length);
@@ -1660,16 +2073,28 @@ function createCitySimulationV2({ rng, cfg, w, h }) {
   // MAIN: choose gates from boundary secondary roads and upgrade shortest paths (subset of SECONDARY).
   const mainGatePad = Math.max(2, cfg.growth.mainGatePad ?? 4);
   const mainGateCount = Math.max(3, cfg.growth.mainGateCount ?? 4);
-  const mainGateMinSpacing = Math.max(4, cfg.growth.mainGateMinSpacing ?? 18);
-  const mainGateSearchBand = Math.max(mainGatePad, cfg.growth.mainGateSearchBand ?? mainGatePad);
+  const mainGateMinSpacing = Math.max(4, Math.round((cfg.growth.mainGateMinSpacing ?? 18) * sizeScale));
+  const mainGateSearchBand = Math.max(
+    mainGatePad,
+    Math.round((cfg.growth.mainGateSearchBand ?? mainGatePad) * sizeScale)
+  );
 
-  const hubRoad = findNearestRoadCell({
+  let hubRoad = findNearestRoadCell({
     grid,
     x: hub.x,
     y: hub.y,
     mask: ROAD_TYPE_MASK.SECONDARY,
     maxR: mainGateSearchBand,
   });
+  if (!hubRoad) {
+    hubRoad = findNearestRoadCell({
+      grid,
+      x: hub.x,
+      y: hub.y,
+      mask: ROAD_TYPE_MASK.SECONDARY,
+      maxR: Math.max(w, h),
+    });
+  }
   let gateList = [];
   if (hubRoad) {
     const prev = bfsOnRoadMask({ grid, start: hubRoad, mask: ROAD_TYPE_MASK.SECONDARY });
@@ -1683,6 +2108,18 @@ function createCitySimulationV2({ rng, cfg, w, h }) {
       band: mainGateSearchBand,
       prev,
     });
+    if (!gateList.length) {
+      gateList = pickGateRoadCells({
+        grid,
+        hub,
+        mask: ROAD_TYPE_MASK.SECONDARY,
+        count: mainGateCount,
+        pad: mainGatePad,
+        minSpacing: mainGateMinSpacing,
+        band: Math.round(Math.min(w, h) * 0.5),
+        prev,
+      });
+    }
     const startIdx = hubRoad.y * w + hubRoad.x;
     for (const gate of gateList) {
       const goalIdx = gate.y * w + gate.x;
@@ -1695,6 +2132,7 @@ function createCitySimulationV2({ rng, cfg, w, h }) {
 
   // Blocks + mandatory access connectors.
   const blocks = buildBlocksAndConnectors({ grid, graph, cfg, rng, boundaryMask });
+
 
   if (cfg.growth.enableLocalV2) {
     // LOCAL fill inside blocks (simple "Minecraft-friendly" grid).
@@ -1716,10 +2154,16 @@ function createCitySimulationV2({ rng, cfg, w, h }) {
     }
   }
 
+  const distToRoad = buildDistanceToRoads(grid);
+  const { buildings, plazas, farms } = buildBuildingPlans({ grid, blocks, cfg, rng, distToRoad });
+
   const sim = {
     grid,
     graph,
     blocks,
+    buildings,
+    plazas,
+    farms,
     meta,
     stats: {},
     attraction: null,
@@ -1752,14 +2196,14 @@ function createCitySimulationLegacy({ rng, cfg, w, h }) {
   const attraction = buildAttraction({ hub, gates });
   graph.ensureNode(hub.x, hub.y);
 
-  // Р¦РµРЅС‚СЂР°Р»СЊРЅР°СЏ РїР»РѕС‰Р°РґСЊ вЂ” РѕРєС‚РѕРєРѕР»СЊС†Рѕ
+  // Центральная площадь — октокольцо
   const plazaR = rng.int(cfg.growth.plazaRadiusMin, cfg.growth.plazaRadiusMax);
   clearArea(grid, hub.x, hub.y, plazaR + 3);
   const plazaRing = buildOctagonRing({ cx: hub.x, cy: hub.y, r: plazaR });
   markPathAsTypedRoad({ grid, cfg, typeName: "MAIN", path: plazaRing, boundaryMask });
   graph.addRoad({ type: "MAIN", widthCells: cfg.roadTypes.MAIN.widthCells, path: plazaRing, tag: "PLAZA" });
 
-  // MAIN вЂ” РґРІРµ РѕСЂС‚-РѕСЃРё + 1вЂ“2 РґРёР°РіРѕРЅР°Р»Рё
+  // MAIN — две орт-оси + 1–2 диагонали
   const mainTypeCfg = cfg.roadTypes.MAIN;
   const pad = 2;
 
@@ -1811,12 +2255,12 @@ function createCitySimulationLegacy({ rng, cfg, w, h }) {
   const secondaryCfg = cfg.roadTypes.SECONDARY;
   for (const s of pickedSeeds) {
     const perps = perpendicularDirs(s.parentDirI);
-    // РЎРїР°РІРЅРёРј С‡Р°С‰Рµ РѕРґРЅСѓ СЃС‚РѕСЂРѕРЅСѓ, РёРЅРѕРіРґР° РѕР±Рµ.
+    // Спавним чаще одну сторону, иногда обе.
     const spawnBoth = rng.chance(0.10);
     for (let j = 0; j < perps.length; j++) {
       if (!spawnBoth && j > 0) break;
       const dirI = perps[j];
-      if ((dirI & 1) !== 0) continue; // SECONDARY Р±Р°Р·РѕРІРѕ 4 РЅР°РїСЂР°РІР»РµРЅРёСЏ
+      if ((dirI & 1) !== 0) continue; // SECONDARY базово 4 направления
       if (tooCloseParallel({ grid, x: s.x, y: s.y, dirI, minSpacing: secondaryCfg.minSpacingParallelCells })) continue;
       const minRun = cfg.growth.secondaryMinRunCells | 0;
       const lenTarget = sampleSecondaryLenTarget({ rng, cfg });
@@ -1870,13 +2314,13 @@ function createCitySimulationLegacy({ rng, cfg, w, h }) {
           let active = 0;
           for (const b of this._secondaryBranches) if (!b.done) active++;
           if (!active || progressed === 0) {
-            // РџРµСЂРµС…РѕРґРёРј Рє РєРІР°СЂС‚Р°Р»Р°Рј (РїРѕ boundaryMask: MAIN+SECONDARY)
+            // Переходим к кварталам (по boundaryMask: MAIN+SECONDARY)
             this.blocks = floodFillBlocksByMask({ grid, boundaryMask: this._boundaryMask });
             this.stage = "LOCAL";
           }
         } else if (this.stage === "LOCAL") {
           if (!this._localSeeded) {
-            // LOCAL: С‚РѕР»СЊРєРѕ В«РєР°СЂРјР°РЅС‹/РїРѕРґСЉРµР·РґС‹В» РѕС‚ boundary (MAIN/SECONDARY) РІРЅСѓС‚СЂСЊ РєРІР°СЂС‚Р°Р»РѕРІ.
+            // LOCAL: только «карманы/подъезды» от boundary (MAIN/SECONDARY) внутрь кварталов.
             const localCfg = cfg.roadTypes.LOCAL;
 
             const candidates = [];
@@ -1885,7 +2329,7 @@ function createCitySimulationLegacy({ rng, cfg, w, h }) {
               for (let x = borderPad; x < w - borderPad; x++) {
                 if (!grid.isRoad(x, y)) continue;
                 if (!grid.hasRoadType(x, y, ROAD_TYPE_MASK.MAIN | ROAD_TYPE_MASK.SECONDARY)) continue;
-                // РС‰РµРј СЃРІРѕР±РѕРґРЅСѓСЋ РєР»РµС‚РєСѓ РІ РєРІР°СЂС‚Р°Р»Рµ СЂСЏРґРѕРј, С‡С‚РѕР±С‹ РЅР°С‡Р°С‚СЊ РєР°СЂРјР°РЅ.
+                // Ищем свободную клетку в квартале рядом, чтобы начать карман.
                 for (let k = 0; k < 4; k++) {
                   const d = DIRS_8[k * 2];
                   const sx = x + d.dx;
@@ -1893,7 +2337,7 @@ function createCitySimulationLegacy({ rng, cfg, w, h }) {
                   if (!grid.inBounds(sx, sy)) continue;
                   if (grid.isObstacle(sx, sy) || grid.isRoad(sx, sy)) continue;
                   if (grid.isReservedBySecondary(sx, sy)) continue;
-                  // РЎС‚Р°СЂС‚РѕРІР°СЏ РєР»РµС‚РєР° РґРѕР»Р¶РЅР° Р±С‹С‚СЊ РІРЅСѓС‚СЂРё Р±Р»РѕРєР° (РЅРµ boundaryMask).
+                  // Стартовая клетка должна быть внутри блока (не boundaryMask).
                   if (this._boundaryMask[sy * w + sx] !== 0) continue;
                   candidates.push({ ox: x, oy: y, x: sx, y: sy, dirI: d.i });
                 }
@@ -1906,12 +2350,12 @@ function createCitySimulationLegacy({ rng, cfg, w, h }) {
               const dirI = c.dirI;
               if (tooCloseParallel({ grid, x: c.x, y: c.y, dirI, minSpacing: localCfg.minSpacingParallelCells })) continue;
               const lenTarget = rng.int(cfg.growth.localLenMin, cfg.growth.localLenMax);
-              // Р’РєР»СЋС‡Р°РµРј СЏРєРѕСЂСЊ РЅР° boundary РґРѕСЂРѕРіРµ, С‡С‚РѕР±С‹ LOCAL РЅРµ Р±С‹Р»Рё В«РѕС‚РѕСЂРІР°РЅРЅС‹РјРёВ».
+              // Включаем якорь на boundary дороге, чтобы LOCAL не были «оторванными».
               const initialPath = [
                 [c.ox, c.oy],
                 [c.x, c.y],
               ];
-              // РњР°СЂРєРёСЂСѓРµРј РїРµСЂРІС‹Р№ С€Р°Рі РєР°СЂРјР°РЅР°.
+              // Маркируем первый шаг кармана.
               markRoadCellTyped({ grid, cfg, typeName: "LOCAL", x: c.x, y: c.y, dirI, boundaryMask: null });
               this._localBranches.push(
                 initConstrainedBranch({
@@ -1946,7 +2390,7 @@ function createCitySimulationLegacy({ rng, cfg, w, h }) {
             this.stage = "CONNECTORS";
           }
         } else if (this.stage === "CONNECTORS") {
-          // Р¤РёРЅР°Р»СЊРЅС‹Р№ РїРѕСЃС‚РїСЂРѕС†РµСЃСЃ: anti-zigzag + РїРµСЂРµСЃР±РѕСЂРєР° road layer
+          // Финальный постпроцесс: anti-zigzag + пересборка road layer
           resetRoadLayers(grid);
           this._boundaryMask.fill(0);
           for (const r of graph.roads) {
@@ -1961,7 +2405,7 @@ function createCitySimulationLegacy({ rng, cfg, w, h }) {
             });
           }
 
-          // РљРІР°СЂС‚Р°Р»С‹ РїРѕ boundaryMask Рё РѕР±СЏР·Р°С‚РµР»СЊРЅС‹Р№ РІС‹С…РѕРґ
+          // Кварталы по boundaryMask и обязательный выход
           this.blocks = buildBlocksAndConnectors({ grid, graph, cfg, rng, boundaryMask: this._boundaryMask });
           this.stage = "DONE";
           this.done = true;
@@ -1983,7 +2427,7 @@ export function createCitySimulation({ rng, cfg, w, h }) {
 
 export function generateCity({ rng, cfg, w, h }) {
   const sim = createCitySimulation({ rng, cfg, w, h });
-  // Р”РѕР¶РёРјР°РµРј РґРѕ РєРѕРЅС†Р° Р·Р° РѕРґРёРЅ РІС‹Р·РѕРІ (СЃС‚Р°СЂРѕРµ API).
+  // Дожимаем до конца за один вызов (старое API).
   let guard = 0;
   while (!sim.done && guard++ < 5000) sim.step(1);
   return { grid: sim.grid, graph: sim.graph, blocks: sim.blocks, meta: sim.meta, attraction: sim.attraction };
